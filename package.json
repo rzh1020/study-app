@@ -1,0 +1,15 @@
+{
+  "name": "study-app",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "自用碎片化学习 PWA：日语 SRS + 声乐/练耳 + 每周回归",
+  "scripts": {
+    "test": "node tools/test_core.mjs",
+    "gen": "node tools/gen_kana.mjs",
+    "serve": "python3 -m http.server 8090"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^23.11.1"
+  }
+}

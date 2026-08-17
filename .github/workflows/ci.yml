@@ -1,0 +1,129 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: 单测 + 浏览器 e2e
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # 构建本身零依赖，只有测试需要 puppeteer-core
+      - name: 安装测试依赖
+        run: npm ci || npm install
+
+      # 数据是脚本生成的，CI 里重新生成一遍并和仓库里的比对：
+      # 防止有人手改了 data/*.json 而没同步生成器（罗马音就靠生成器保证正确）
+      - name: 数据生成器自检
+        run: |
+          node tools/gen_kana.mjs
+          node tools/gen_vocab.mjs
+          if ! git diff --quiet -- data/kana.json data/vocab.json; then
+            echo "::error::data/kana.json 或 data/vocab.json 与生成器输出不一致。"
+            echo "如果是有意手改，请改生成器里的表格而不是改产物。差异："
+            git --no-pager diff --stat -- data/kana.json data/vocab.json
+            exit 1
+          fi
+          echo "数据与生成器一致"
+
+      - name: JSON 合法性与结构
+        run: |
+          node -e "
+          const fs=require('fs');
+          const expect={kana:{cards:104,rules:8},vocab:{vocab:185},grammar:{grammar:42},theory:{theory:45}};
+          let bad=0;
+          for(const [f,arrs] of Object.entries(expect)){
+            const j=JSON.parse(fs.readFileSync('data/'+f+'.json','utf8'));
+            for(const [k,n] of Object.entries(arrs)){
+              const got=(j[k]||[]).length;
+              console.log(f+'.'+k+' = '+got+' (期望 '+n+')');
+              if(got!==n){console.error('  数量不符');bad++;}
+            }
+          }
+          JSON.parse(fs.readFileSync('data/plan.json','utf8'));
+          const plan=JSON.parse(fs.readFileSync('data/plan.json','utf8'));
+          if(plan.weeks.length!==12){console.error('plan.weeks 应为 12 周');bad++;}
+          process.exit(bad?1:0);
+          "
+
+      - name: 核心算法单测
+        run: node tools/test_core.mjs
+
+      # ubuntu-latest 预装了 Chrome，e2e 会自动探测 /usr/bin/google-chrome
+      - name: 确认 Chrome 可用
+        run: google-chrome --version
+
+      - name: 浏览器端到端
+        run: xvfb-run -a node tools/e2e.mjs
+
+      - name: 上传 e2e 截图
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-screenshots
+          path: /tmp/study-app-shots/
+          if-no-files-found: warn
+          retention-days: 14
+
+  apk:
+    name: 构建 APK
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: 安装 build-tools 与 platform
+        run: sdkmanager --install "platforms;android-35" "build-tools;35.0.0"
+
+      # CI 里没有本机那把 debug.keystore（已 gitignore），
+      # build.sh 会自动生成一把临时的。所以 CI 产物的签名和你本机产物**不同**，
+      # 不能用来覆盖安装本机装的版本（会报签名冲突，需先卸载）。
+      # CI 的 APK 只用于「换台设备干净安装」或验证构建可复现。
+      - name: 构建
+        run: |
+          ./android/build.sh
+          ls -la android/build/study-hub.apk
+
+      - name: 校验 APK 内容
+        run: |
+          set -e
+          L=$(unzip -l android/build/study-hub.apk)
+          for f in assets/index.html assets/js/app.js assets/js/native.js \
+                   assets/data/kana.json assets/data/vocab.json assets/data/plan.json \
+                   classes.dex AndroidManifest.xml; do
+            echo "$L" | grep -q "$f" || { echo "::error::APK 缺少 $f"; exit 1; }
+          done
+          echo "APK 内容完整"
+          # 权限核对：必须有麦克风两件套，且绝不能出现联网权限
+          AAPT=$(ls -d $ANDROID_HOME/build-tools/*/ | sort -V | tail -1)aapt2
+          "$AAPT" dump permissions android/build/study-hub.apk > /tmp/perm.txt
+          cat /tmp/perm.txt
+          grep -q 'android.permission.RECORD_AUDIO' /tmp/perm.txt || { echo "::error::缺 RECORD_AUDIO"; exit 1; }
+          grep -q 'android.permission.MODIFY_AUDIO_SETTINGS' /tmp/perm.txt || { echo "::error::缺 MODIFY_AUDIO_SETTINGS（Chromium 采音需要，缺了会 NotReadableError）"; exit 1; }
+          if grep -q 'android.permission.INTERNET' /tmp/perm.txt; then
+            echo "::error::出现了 INTERNET 权限。本应用不应联网。"; exit 1
+          fi
+          echo "权限核对通过"
+
+      - name: 上传 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: study-hub-apk
+          path: android/build/study-hub.apk
+          retention-days: 90

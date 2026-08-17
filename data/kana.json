@@ -1,0 +1,879 @@
+{
+ "version": 1,
+ "cards": [
+  {
+   "id": "kana-001",
+   "group": "ア行",
+   "romaji": "a",
+   "hira": "あ",
+   "kata": "ア",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-002",
+   "group": "ア行",
+   "romaji": "i",
+   "hira": "い",
+   "kata": "イ",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-003",
+   "group": "ア行",
+   "romaji": "u",
+   "hira": "う",
+   "kata": "ウ",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-004",
+   "group": "ア行",
+   "romaji": "e",
+   "hira": "え",
+   "kata": "エ",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-005",
+   "group": "ア行",
+   "romaji": "o",
+   "hira": "お",
+   "kata": "オ",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-006",
+   "group": "カ行",
+   "romaji": "ka",
+   "hira": "か",
+   "kata": "カ",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-007",
+   "group": "カ行",
+   "romaji": "ki",
+   "hira": "き",
+   "kata": "キ",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-008",
+   "group": "カ行",
+   "romaji": "ku",
+   "hira": "く",
+   "kata": "ク",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-009",
+   "group": "カ行",
+   "romaji": "ke",
+   "hira": "け",
+   "kata": "ケ",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-010",
+   "group": "カ行",
+   "romaji": "ko",
+   "hira": "こ",
+   "kata": "コ",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-011",
+   "group": "サ行",
+   "romaji": "sa",
+   "hira": "さ",
+   "kata": "サ",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-012",
+   "group": "サ行",
+   "romaji": "shi",
+   "hira": "し",
+   "kata": "シ",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-013",
+   "group": "サ行",
+   "romaji": "su",
+   "hira": "す",
+   "kata": "ス",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-014",
+   "group": "サ行",
+   "romaji": "se",
+   "hira": "せ",
+   "kata": "セ",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-015",
+   "group": "サ行",
+   "romaji": "so",
+   "hira": "そ",
+   "kata": "ソ",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-016",
+   "group": "タ行",
+   "romaji": "ta",
+   "hira": "た",
+   "kata": "タ",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-017",
+   "group": "タ行",
+   "romaji": "chi",
+   "hira": "ち",
+   "kata": "チ",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-018",
+   "group": "タ行",
+   "romaji": "tsu",
+   "hira": "つ",
+   "kata": "ツ",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-019",
+   "group": "タ行",
+   "romaji": "te",
+   "hira": "て",
+   "kata": "テ",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-020",
+   "group": "タ行",
+   "romaji": "to",
+   "hira": "と",
+   "kata": "ト",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-021",
+   "group": "ナ行",
+   "romaji": "na",
+   "hira": "な",
+   "kata": "ナ",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-022",
+   "group": "ナ行",
+   "romaji": "ni",
+   "hira": "に",
+   "kata": "ニ",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-023",
+   "group": "ナ行",
+   "romaji": "nu",
+   "hira": "ぬ",
+   "kata": "ヌ",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-024",
+   "group": "ナ行",
+   "romaji": "ne",
+   "hira": "ね",
+   "kata": "ネ",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-025",
+   "group": "ナ行",
+   "romaji": "no",
+   "hira": "の",
+   "kata": "ノ",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-026",
+   "group": "ハ行",
+   "romaji": "ha",
+   "hira": "は",
+   "kata": "ハ",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-027",
+   "group": "ハ行",
+   "romaji": "hi",
+   "hira": "ひ",
+   "kata": "ヒ",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-028",
+   "group": "ハ行",
+   "romaji": "fu",
+   "hira": "ふ",
+   "kata": "フ",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-029",
+   "group": "ハ行",
+   "romaji": "he",
+   "hira": "へ",
+   "kata": "ヘ",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-030",
+   "group": "ハ行",
+   "romaji": "ho",
+   "hira": "ほ",
+   "kata": "ホ",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-031",
+   "group": "マ行",
+   "romaji": "ma",
+   "hira": "ま",
+   "kata": "マ",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-032",
+   "group": "マ行",
+   "romaji": "mi",
+   "hira": "み",
+   "kata": "ミ",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-033",
+   "group": "マ行",
+   "romaji": "mu",
+   "hira": "む",
+   "kata": "ム",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-034",
+   "group": "マ行",
+   "romaji": "me",
+   "hira": "め",
+   "kata": "メ",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-035",
+   "group": "マ行",
+   "romaji": "mo",
+   "hira": "も",
+   "kata": "モ",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-036",
+   "group": "ヤ行",
+   "romaji": "ya",
+   "hira": "や",
+   "kata": "ヤ",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-037",
+   "group": "ヤ行",
+   "romaji": "yu",
+   "hira": "ゆ",
+   "kata": "ユ",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-038",
+   "group": "ヤ行",
+   "romaji": "yo",
+   "hira": "よ",
+   "kata": "ヨ",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-039",
+   "group": "ラ行",
+   "romaji": "ra",
+   "hira": "ら",
+   "kata": "ラ",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-040",
+   "group": "ラ行",
+   "romaji": "ri",
+   "hira": "り",
+   "kata": "リ",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-041",
+   "group": "ラ行",
+   "romaji": "ru",
+   "hira": "る",
+   "kata": "ル",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-042",
+   "group": "ラ行",
+   "romaji": "re",
+   "hira": "れ",
+   "kata": "レ",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-043",
+   "group": "ラ行",
+   "romaji": "ro",
+   "hira": "ろ",
+   "kata": "ロ",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-044",
+   "group": "ワ行",
+   "romaji": "wa",
+   "hira": "わ",
+   "kata": "ワ",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-045",
+   "group": "ワ行",
+   "romaji": "wo",
+   "hira": "を",
+   "kata": "ヲ",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-046",
+   "group": "撥音",
+   "romaji": "n",
+   "hira": "ん",
+   "kata": "ン",
+   "tag": "seion"
+  },
+  {
+   "id": "kana-047",
+   "group": "ガ行",
+   "romaji": "ga",
+   "hira": "が",
+   "kata": "ガ",
+   "tag": "dakuon"
+  },
+  {
+   "id": "kana-048",
+   "group": "ガ行",
+   "romaji": "gi",
+   "hira": "ぎ",
+   "kata": "ギ",
+   "tag": "dakuon"
+  },
+  {
+   "id": "kana-049",
+   "group": "ガ行",
+   "romaji": "gu",
+   "hira": "ぐ",
+   "kata": "グ",
+   "tag": "dakuon"
+  },
+  {
+   "id": "kana-050",
+   "group": "ガ行",
+   "romaji": "ge",
+   "hira": "げ",
+   "kata": "ゲ",
+   "tag": "dakuon"
+  },
+  {
+   "id": "kana-051",
+   "group": "ガ行",
+   "romaji": "go",
+   "hira": "ご",
+   "kata": "ゴ",
+   "tag": "dakuon"
+  },
+  {
+   "id": "kana-052",
+   "group": "ザ行",
+   "romaji": "za",
+   "hira": "ざ",
+   "kata": "ザ",
+   "tag": "dakuon"
+  },
+  {
+   "id": "kana-053",
+   "group": "ザ行",
+   "romaji": "ji",
+   "hira": "じ",
+   "kata": "ジ",
+   "tag": "dakuon"
+  },
+  {
+   "id": "kana-054",
+   "group": "ザ行",
+   "romaji": "zu",
+   "hira": "ず",
+   "kata": "ズ",
+   "tag": "dakuon"
+  },
+  {
+   "id": "kana-055",
+   "group": "ザ行",
+   "romaji": "ze",
+   "hira": "ぜ",
+   "kata": "ゼ",
+   "tag": "dakuon"
+  },
+  {
+   "id": "kana-056",
+   "group": "ザ行",
+   "romaji": "zo",
+   "hira": "ぞ",
+   "kata": "ゾ",
+   "tag": "dakuon"
+  },
+  {
+   "id": "kana-057",
+   "group": "ダ行",
+   "romaji": "da",
+   "hira": "だ",
+   "kata": "ダ",
+   "tag": "dakuon"
+  },
+  {
+   "id": "kana-058",
+   "group": "ダ行",
+   "romaji": "ji",
+   "hira": "ぢ",
+   "kata": "ヂ",
+   "tag": "dakuon"
+  },
+  {
+   "id": "kana-059",
+   "group": "ダ行",
+   "romaji": "zu",
+   "hira": "づ",
+   "kata": "ヅ",
+   "tag": "dakuon"
+  },
+  {
+   "id": "kana-060",
+   "group": "ダ行",
+   "romaji": "de",
+   "hira": "で",
+   "kata": "デ",
+   "tag": "dakuon"
+  },
+  {
+   "id": "kana-061",
+   "group": "ダ行",
+   "romaji": "do",
+   "hira": "ど",
+   "kata": "ド",
+   "tag": "dakuon"
+  },
+  {
+   "id": "kana-062",
+   "group": "バ行",
+   "romaji": "ba",
+   "hira": "ば",
+   "kata": "バ",
+   "tag": "dakuon"
+  },
+  {
+   "id": "kana-063",
+   "group": "バ行",
+   "romaji": "bi",
+   "hira": "び",
+   "kata": "ビ",
+   "tag": "dakuon"
+  },
+  {
+   "id": "kana-064",
+   "group": "バ行",
+   "romaji": "bu",
+   "hira": "ぶ",
+   "kata": "ブ",
+   "tag": "dakuon"
+  },
+  {
+   "id": "kana-065",
+   "group": "バ行",
+   "romaji": "be",
+   "hira": "べ",
+   "kata": "ベ",
+   "tag": "dakuon"
+  },
+  {
+   "id": "kana-066",
+   "group": "バ行",
+   "romaji": "bo",
+   "hira": "ぼ",
+   "kata": "ボ",
+   "tag": "dakuon"
+  },
+  {
+   "id": "kana-067",
+   "group": "パ行",
+   "romaji": "pa",
+   "hira": "ぱ",
+   "kata": "パ",
+   "tag": "dakuon"
+  },
+  {
+   "id": "kana-068",
+   "group": "パ行",
+   "romaji": "pi",
+   "hira": "ぴ",
+   "kata": "ピ",
+   "tag": "dakuon"
+  },
+  {
+   "id": "kana-069",
+   "group": "パ行",
+   "romaji": "pu",
+   "hira": "ぷ",
+   "kata": "プ",
+   "tag": "dakuon"
+  },
+  {
+   "id": "kana-070",
+   "group": "パ行",
+   "romaji": "pe",
+   "hira": "ぺ",
+   "kata": "ペ",
+   "tag": "dakuon"
+  },
+  {
+   "id": "kana-071",
+   "group": "パ行",
+   "romaji": "po",
+   "hira": "ぽ",
+   "kata": "ポ",
+   "tag": "dakuon"
+  },
+  {
+   "id": "kana-072",
+   "group": "き行",
+   "romaji": "kya",
+   "hira": "きゃ",
+   "kata": "キャ",
+   "tag": "yoon"
+  },
+  {
+   "id": "kana-073",
+   "group": "き行",
+   "romaji": "kyu",
+   "hira": "きゅ",
+   "kata": "キュ",
+   "tag": "yoon"
+  },
+  {
+   "id": "kana-074",
+   "group": "き行",
+   "romaji": "kyo",
+   "hira": "きょ",
+   "kata": "キョ",
+   "tag": "yoon"
+  },
+  {
+   "id": "kana-075",
+   "group": "し行",
+   "romaji": "sha",
+   "hira": "しゃ",
+   "kata": "シャ",
+   "tag": "yoon"
+  },
+  {
+   "id": "kana-076",
+   "group": "し行",
+   "romaji": "shu",
+   "hira": "しゅ",
+   "kata": "シュ",
+   "tag": "yoon"
+  },
+  {
+   "id": "kana-077",
+   "group": "し行",
+   "romaji": "sho",
+   "hira": "しょ",
+   "kata": "ショ",
+   "tag": "yoon"
+  },
+  {
+   "id": "kana-078",
+   "group": "ち行",
+   "romaji": "cha",
+   "hira": "ちゃ",
+   "kata": "チャ",
+   "tag": "yoon"
+  },
+  {
+   "id": "kana-079",
+   "group": "ち行",
+   "romaji": "chu",
+   "hira": "ちゅ",
+   "kata": "チュ",
+   "tag": "yoon"
+  },
+  {
+   "id": "kana-080",
+   "group": "ち行",
+   "romaji": "cho",
+   "hira": "ちょ",
+   "kata": "チョ",
+   "tag": "yoon"
+  },
+  {
+   "id": "kana-081",
+   "group": "に行",
+   "romaji": "nya",
+   "hira": "にゃ",
+   "kata": "ニャ",
+   "tag": "yoon"
+  },
+  {
+   "id": "kana-082",
+   "group": "に行",
+   "romaji": "nyu",
+   "hira": "にゅ",
+   "kata": "ニュ",
+   "tag": "yoon"
+  },
+  {
+   "id": "kana-083",
+   "group": "に行",
+   "romaji": "nyo",
+   "hira": "にょ",
+   "kata": "ニョ",
+   "tag": "yoon"
+  },
+  {
+   "id": "kana-084",
+   "group": "ひ行",
+   "romaji": "hya",
+   "hira": "ひゃ",
+   "kata": "ヒャ",
+   "tag": "yoon"
+  },
+  {
+   "id": "kana-085",
+   "group": "ひ行",
+   "romaji": "hyu",
+   "hira": "ひゅ",
+   "kata": "ヒュ",
+   "tag": "yoon"
+  },
+  {
+   "id": "kana-086",
+   "group": "ひ行",
+   "romaji": "hyo",
+   "hira": "ひょ",
+   "kata": "ヒョ",
+   "tag": "yoon"
+  },
+  {
+   "id": "kana-087",
+   "group": "み行",
+   "romaji": "mya",
+   "hira": "みゃ",
+   "kata": "ミャ",
+   "tag": "yoon"
+  },
+  {
+   "id": "kana-088",
+   "group": "み行",
+   "romaji": "myu",
+   "hira": "みゅ",
+   "kata": "ミュ",
+   "tag": "yoon"
+  },
+  {
+   "id": "kana-089",
+   "group": "み行",
+   "romaji": "myo",
+   "hira": "みょ",
+   "kata": "ミョ",
+   "tag": "yoon"
+  },
+  {
+   "id": "kana-090",
+   "group": "り行",
+   "romaji": "rya",
+   "hira": "りゃ",
+   "kata": "リャ",
+   "tag": "yoon"
+  },
+  {
+   "id": "kana-091",
+   "group": "り行",
+   "romaji": "ryu",
+   "hira": "りゅ",
+   "kata": "リュ",
+   "tag": "yoon"
+  },
+  {
+   "id": "kana-092",
+   "group": "り行",
+   "romaji": "ryo",
+   "hira": "りょ",
+   "kata": "リョ",
+   "tag": "yoon"
+  },
+  {
+   "id": "kana-093",
+   "group": "ぎ行",
+   "romaji": "gya",
+   "hira": "ぎゃ",
+   "kata": "ギャ",
+   "tag": "yoon"
+  },
+  {
+   "id": "kana-094",
+   "group": "ぎ行",
+   "romaji": "gyu",
+   "hira": "ぎゅ",
+   "kata": "ギュ",
+   "tag": "yoon"
+  },
+  {
+   "id": "kana-095",
+   "group": "ぎ行",
+   "romaji": "gyo",
+   "hira": "ぎょ",
+   "kata": "ギョ",
+   "tag": "yoon"
+  },
+  {
+   "id": "kana-096",
+   "group": "じ行",
+   "romaji": "ja",
+   "hira": "じゃ",
+   "kata": "ジャ",
+   "tag": "yoon"
+  },
+  {
+   "id": "kana-097",
+   "group": "じ行",
+   "romaji": "ju",
+   "hira": "じゅ",
+   "kata": "ジュ",
+   "tag": "yoon"
+  },
+  {
+   "id": "kana-098",
+   "group": "じ行",
+   "romaji": "jo",
+   "hira": "じょ",
+   "kata": "ジョ",
+   "tag": "yoon"
+  },
+  {
+   "id": "kana-099",
+   "group": "び行",
+   "romaji": "bya",
+   "hira": "びゃ",
+   "kata": "ビャ",
+   "tag": "yoon"
+  },
+  {
+   "id": "kana-100",
+   "group": "び行",
+   "romaji": "byu",
+   "hira": "びゅ",
+   "kata": "ビュ",
+   "tag": "yoon"
+  },
+  {
+   "id": "kana-101",
+   "group": "び行",
+   "romaji": "byo",
+   "hira": "びょ",
+   "kata": "ビョ",
+   "tag": "yoon"
+  },
+  {
+   "id": "kana-102",
+   "group": "ぴ行",
+   "romaji": "pya",
+   "hira": "ぴゃ",
+   "kata": "ピャ",
+   "tag": "yoon"
+  },
+  {
+   "id": "kana-103",
+   "group": "ぴ行",
+   "romaji": "pyu",
+   "hira": "ぴゅ",
+   "kata": "ピュ",
+   "tag": "yoon"
+  },
+  {
+   "id": "kana-104",
+   "group": "ぴ行",
+   "romaji": "pyo",
+   "hira": "ぴょ",
+   "kata": "ピョ",
+   "tag": "yoon"
+  }
+ ],
+ "rules": [
+  {
+   "id": "rule-001",
+   "title": "促音 っ",
+   "body": "小写的 っ / ッ 不发音，而是停顿一拍，等于把下一个辅音加倍。\nきって kitte（邮票）· がっこう gakkou（学校）· ちょっと chotto（稍微）"
+  },
+  {
+   "id": "rule-002",
+   "title": "长音",
+   "body": "拉长一拍，算独立音节。平假名靠元音叠加，片假名用「ー」。\nおおきい ookii（大）· とうきょう Toukyou（东京）· コーヒー koohii（咖啡）\n长短会变词义：おじさん 叔叔 / おじいさん 爷爷"
+  },
+  {
+   "id": "rule-003",
+   "title": "ん 的三种实际读音",
+   "body": "ん 单独占一拍，但受后一个音影响：\n· 后接 b/p/m → 读 m：さんぽ sampo\n· 后接 k/g → 读 ng：にほんご nihongo\n· 后接 t/d/n/z → 读 n：おんな onna"
+  },
+  {
+   "id": "rule-004",
+   "title": "は / へ / を 当助词时变音",
+   "body": "作助词时读音变了，这是最容易读错的地方：\n· は → wa（わたしは watashi wa）\n· へ → e（がっこうへ gakkou e）\n· を → o（みずを のむ mizu o nomu）\n不作助词时仍读 ha / he / wo。"
+  },
+  {
+   "id": "rule-005",
+   "title": "う段的 u 常被弱化",
+   "body": "です → desu 实际近 des；ます → masu 实际近 mas。\n词尾的 u 音气流很轻，读满会显得生硬。"
+  },
+  {
+   "id": "rule-006",
+   "title": "が 的鼻浊音",
+   "body": "词中、词尾的 が 行在很多说话人口中带鼻音（近 nga）。\nにほんご 的 ご、あります 里的 が。不强求，但听力上要能对上。"
+  },
+  {
+   "id": "rule-007",
+   "title": "片假名用在哪",
+   "body": "外来语（コンピューター）、拟声拟态词（ドキドキ）、\n强调（マジ）、动植物学名。看动漫时的招式名、拟声词几乎全是片假名，\n所以片假名不能只认不练。"
+  },
+  {
+   "id": "rule-008",
+   "title": "し/ち/つ/ふ 的送气",
+   "body": "し=shi 不是 si；ち=chi 不是 ti；つ=tsu 舌尖抵上齿；\nふ=fu 是双唇轻擦，不是英语的 f（不用上齿咬下唇）。"
+  }
+ ]
+}

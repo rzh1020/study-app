@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.rzh.studyhub"
+    android:versionCode="1"
+    android:versionName="1.0">
+
+    <!-- 练声模块需要麦克风。除此之外本应用不需要任何权限：
+         没有网络权限 —— 内容全部打包在 APK 里，数据全部存本机，
+         从系统层面保证不会有任何数据外传。 -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Chromium 的音频采集要求同时具备 RECORD_AUDIO 和 MODIFY_AUDIO_SETTINGS，
+         只给前者会得到 NotReadableError: Could not start audio source，
+         而且 AOSP 权限页显示「麦克风已授予」，非常难查。
+         实测日志：cr_media: "Requires MODIFY_AUDIO_SETTINGS and RECORD_AUDIO.
+         No audio device will be available for recording"。
+         这是普通权限（install-time），声明即生效，不需要运行时申请。 -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+    <!-- 明确声明支持各种屏幕：这台设备是 Pad 9 Pro（2136x3200），
+         锁竖屏会被 letterbox 成中间一条，横屏时两侧全是壁纸。 -->
+    <supports-screens
+        android:smallScreens="true"
+        android:normalScreens="true"
+        android:largeScreens="true"
+        android:xlargeScreens="true"
+        android:resizeable="true"
+        android:anyDensity="true" />
+
+    <application
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:allowBackup="true"
+        android:supportsRtl="false"
+        android:hardwareAccelerated="true"
+        android:theme="@style/AppTheme">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:launchMode="singleTop"
+            android:resizeableActivity="true"
+            android:configChanges="orientation|screenSize|keyboardHidden|uiMode|density|fontScale"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

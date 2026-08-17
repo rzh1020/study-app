@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>环境自检</title>
+<link rel="stylesheet" href="./css/app.css">
+<style>
+  body { padding: 14px; }
+  .r { display: flex; gap: 10px; align-items: flex-start; padding: 9px 0; border-bottom: 1px solid var(--line); }
+  .r:last-child { border-bottom: 0; }
+  .r .m { width: 26px; flex: none; font-size: 16px; text-align: center; }
+  .r .n { flex: 1; min-width: 0; }
+  .r .n b { font-weight: 600; font-size: 14.5px; }
+  .r .n div { font-size: 12px; color: var(--fg3); word-break: break-all; }
+  .ok { color: var(--ok); } .bad { color: var(--bad); } .warn { color: var(--warn); }
+</style>
+</head>
+<body>
+<h2 style="margin:4px 0 12px;font-size:18px">环境自检</h2>
+<div class="card" id="out"><div class="loading">检测中…</div></div>
+<div class="card tight">
+  <div class="tiny dim">这个页面用来确认当前浏览器 + 当前地址能不能跑全部功能。
+  「必需」项有任何一项红叉，对应模块就不可用。</div>
+</div>
+<a class="btn btn-pri btn-block" href="./index.html">进入应用</a>
+
+<script type="module">
+const out = document.getElementById('out');
+const rows = [];
+
+function add(name, level, pass, detail) {
+  rows.push({ name, level, pass, detail });
+}
+
+// --- 上下文 ---
+add('安全上下文 (isSecureContext)', '必需', window.isSecureContext,
+  `${location.protocol}//${location.hostname}${location.port ? ':' + location.port : ''}` +
+  (window.isSecureContext ? '' : ' — 麦克风与离线缓存会不可用，需用 https:// 或 http://localhost'));
+
+// --- 麦克风（练声） ---
+const hasMD = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+add('getUserMedia API 存在', '练声必需', hasMD, hasMD ? '' : '非安全上下文下此 API 根本不存在');
+
+// --- 离线 ---
+add('Service Worker (离线缓存)', '离线必需', 'serviceWorker' in navigator,
+  'serviceWorker' in navigator ? '' : '非安全上下文下不可用');
+
+// --- 存储 ---
+add('IndexedDB (学习数据)', '必需', !!window.indexedDB, '');
+
+// --- 音频 ---
+const AC = window.AudioContext || window.webkitAudioContext;
+add('AudioContext (练耳出题)', '必需', !!AC, AC ? '' : '练耳无法出声');
+add('MediaRecorder (回归录音)', '回归必需', !!window.MediaRecorder, '');
+if (window.MediaRecorder && MediaRecorder.isTypeSupported) {
+  const types = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'];
+  const sup = types.filter((t) => MediaRecorder.isTypeSupported(t));
+  add('录音编码格式', '回归必需', sup.length > 0, sup.join(' , ') || '一个都不支持');
+}
+
+// --- 语言特性 ---
+try {
+  await import('./js/pitch.js');
+  add('动态 import (路由分包)', '必需', true, '');
+} catch (e) {
+  add('动态 import (路由分包)', '必需', false, e.message);
+}
+add('可选链 / 空值合并', '必需', (() => { try { return eval('({a:1})?.a ?? 2') === 1; } catch { return false; } })(), '');
+add('Float32Array (音高检测)', '必需', typeof Float32Array === 'function', '');
+
+// --- PWA 安装 ---
+add('PWA 独立窗口显示模式', '可选', 'standalone' in navigator || matchMedia('(display-mode: standalone)').media !== 'not all',
+  '影响「添加到主屏幕」后是否像原生 App（无地址栏）');
+add('日语 TTS 语音', '可选', (() => {
+  if (!('speechSynthesis' in window)) return false;
+  return speechSynthesis.getVoices().some((v) => /^ja/i.test(v.lang));
+})(), '缺少时朗读按钮静默降级，不影响复习。语音列表可能异步加载，可稍后重测');
+
+// --- 实测麦克风 ---
+let micResult = null;
+if (hasMD) {
+  try {
+    const s = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+    });
+    const ctx = new AC();
+    const src = ctx.createMediaStreamSource(s);
+    const an = ctx.createAnalyser();
+    an.fftSize = 2048;
+    src.connect(an);
+    const buf = new Float32Array(an.fftSize);
+    // 采 1 秒，看是否真有数据流（权限给了但拿不到数据是另一类故障）
+    let maxRms = 0;
+    const t0 = performance.now();
+    while (performance.now() - t0 < 1000) {
+      an.getFloatTimeDomainData(buf);
+      let sq = 0;
+      for (const v of buf) sq += v * v;
+      maxRms = Math.max(maxRms, Math.sqrt(sq / buf.length));
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    micResult = { sr: ctx.sampleRate, maxRms };
+    s.getTracks().forEach((t) => t.stop());
+    ctx.close();
+    add('麦克风实际取到音频数据', '练声必需', maxRms > 0.0002,
+      `采样率 ${ctx.sampleRate}Hz，1 秒内最大 RMS ${maxRms.toFixed(5)}` +
+      (maxRms > 0.0002 ? '' : ' — 权限拿到了但没有数据，检查是否被其他应用占用/系统静音'));
+  } catch (e) {
+    add('麦克风实际取到音频数据', '练声必需', false, `${e.name}: ${e.message}`);
+  }
+}
+
+// --- 渲染 ---
+const icon = (p, level) => (p ? '<span class="ok">✓</span>' : level === '可选' ? '<span class="warn">!</span>' : '<span class="bad">✗</span>');
+out.innerHTML = rows.map((r) => `
+  <div class="r">
+    <div class="m">${icon(r.pass, r.level)}</div>
+    <div class="n">
+      <b>${r.name}</b> <span class="tiny dim">${r.level}</span>
+      ${r.detail ? `<div>${r.detail}</div>` : ''}
+    </div>
+  </div>`).join('') + `
+  <div class="r"><div class="m"></div><div class="n"><div>UA: ${navigator.userAgent}</div></div></div>`;
+
+const hardFail = rows.filter((r) => r.level !== '可选' && !r.pass);
+const banner = document.createElement('div');
+banner.className = 'card';
+banner.style.borderColor = hardFail.length ? 'var(--bad)' : 'var(--ok)';
+banner.innerHTML = hardFail.length
+  ? `<b class="bad">${hardFail.length} 项不通过</b><div class="small dim">${hardFail.map((r) => r.name).join('、')}</div>`
+  : '<b class="ok">全部通过，所有模块可用</b>';
+out.parentNode.insertBefore(banner, out);
+void micResult;
+</script>
+</body>
+</html>

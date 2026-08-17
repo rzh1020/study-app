@@ -1,0 +1,23 @@
+{
+  "name": "学习台 · 日语与声乐",
+  "short_name": "学习台",
+  "description": "自用碎片化学习：日语间隔重复 + 练耳与练声 + 每周回归",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#12141a",
+  "theme_color": "#12141a",
+  "lang": "zh-CN",
+  "icons": [
+    { "src": "./icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "日语卡片", "url": "./index.html#/review/all" },
+    { "name": "练耳", "url": "./index.html#/ear" },
+    { "name": "练声", "url": "./index.html#/voice/routine" }
+  ]
+}

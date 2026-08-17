@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 前景层。adaptive icon 的安全区是中心 66dp/108dp，所以图形收在中间 2/3 内，
+     否则会被系统的圆形/方形遮罩裁掉。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 左竖条：日语（蓝） -->
+    <path
+        android:fillColor="#5B8CFF"
+        android:pathData="M40,30 m-4.5,0 a4.5,4.5 0 1,0 9,0 a4.5,4.5 0 1,0 -9,0 z" />
+    <path
+        android:fillColor="#5B8CFF"
+        android:pathData="M35.5,30 L44.5,30 L44.5,58 L35.5,58 z" />
+    <path
+        android:fillColor="#5B8CFF"
+        android:pathData="M40,58 m-4.5,0 a4.5,4.5 0 1,0 9,0 a4.5,4.5 0 1,0 -9,0 z" />
+
+    <!-- 右竖条：声乐（紫），略短，表示两条并行但进度不同 -->
+    <path
+        android:fillColor="#A37BFF"
+        android:pathData="M68,37 m-4.5,0 a4.5,4.5 0 1,0 9,0 a4.5,4.5 0 1,0 -9,0 z" />
+    <path
+        android:fillColor="#A37BFF"
+        android:pathData="M63.5,37 L72.5,37 L72.5,58 L63.5,58 z" />
+    <path
+        android:fillColor="#A37BFF"
+        android:pathData="M68,58 m-4.5,0 a4.5,4.5 0 1,0 9,0 a4.5,4.5 0 1,0 -9,0 z" />
+
+    <!-- 绿色音高轨迹 -->
+    <path
+        android:strokeColor="#3ECF8E"
+        android:strokeWidth="4.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000"
+        android:pathData="M27,72 L34,72 L40,65 L46,80 L53,69 L59,76 L65,66 L71,79 L77,70 L81,73" />
+</vector>

@@ -1,0 +1,27 @@
+# 依赖（只有测试用到 puppeteer-core，构建本身零依赖）
+node_modules/
+
+# 构建产物。APK 由 ./android/build.sh 在约 20 秒内重新生成，
+# 不入库以免仓库被二进制撑大；需要分发就用 GitHub Releases 或 CI artifact。
+android/build/
+
+# 签名密钥。绝对不要提交：
+# 提交了等于任何人都能签出「看起来是同一个 App」的更新包。
+# 丢了的后果是无法覆盖安装（需先卸载，卸载会清数据）——所以务必自己异地备份一份，
+# 并且在换机/重装前先在 App 内「导出 JSON」。
+android/debug.keystore
+*.keystore
+*.jks
+
+# 学习数据的本地备份，属于个人数据，不入库
+study-backup-*.json
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# 临时
+/tmp/
+*.log

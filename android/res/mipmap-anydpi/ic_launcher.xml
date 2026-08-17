@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- API < 26 的回退图标：自带背景的整图（没有 adaptive icon 的遮罩机制） -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <path
+        android:fillColor="#12141A"
+        android:pathData="M20,4 L88,4 A16,16 0 0,1 104,20 L104,88 A16,16 0 0,1 88,104 L20,104 A16,16 0 0,1 4,88 L4,20 A16,16 0 0,1 20,4 z" />
+
+    <path android:fillColor="#5B8CFF" android:pathData="M35.5,30 L44.5,30 L44.5,58 L35.5,58 z" />
+    <path android:fillColor="#5B8CFF" android:pathData="M40,30 m-4.5,0 a4.5,4.5 0 1,0 9,0 a4.5,4.5 0 1,0 -9,0 z" />
+    <path android:fillColor="#5B8CFF" android:pathData="M40,58 m-4.5,0 a4.5,4.5 0 1,0 9,0 a4.5,4.5 0 1,0 -9,0 z" />
+
+    <path android:fillColor="#A37BFF" android:pathData="M63.5,37 L72.5,37 L72.5,58 L63.5,58 z" />
+    <path android:fillColor="#A37BFF" android:pathData="M68,37 m-4.5,0 a4.5,4.5 0 1,0 9,0 a4.5,4.5 0 1,0 -9,0 z" />
+    <path android:fillColor="#A37BFF" android:pathData="M68,58 m-4.5,0 a4.5,4.5 0 1,0 9,0 a4.5,4.5 0 1,0 -9,0 z" />
+
+    <path
+        android:strokeColor="#3ECF8E"
+        android:strokeWidth="4.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000"
+        android:pathData="M27,72 L34,72 L40,65 L46,80 L53,69 L59,76 L65,66 L71,79 L77,70 L81,73" />
+</vector>
