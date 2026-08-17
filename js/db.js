@@ -72,6 +72,7 @@ export const db = {
   all: (store) => run(store, 'readonly', (s) => wrap(s.getAll())),
   put: (store, val) => run(store, 'readwrite', (s) => wrap(s.put(val))),
   add: (store, val) => run(store, 'readwrite', (s) => wrap(s.add(val))),
+  del: (store, key) => run(store, 'readwrite', (s) => wrap(s.delete(key))),
   clear: (store) => run(store, 'readwrite', (s) => wrap(s.clear())),
   count: (store) => run(store, 'readonly', (s) => wrap(s.count())),
   putMany: (store, vals) =>

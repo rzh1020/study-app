@@ -55,26 +55,47 @@ function frontHTML(c) {
   return `<div class="q-front" style="font-size:20px;line-height:1.5">${esc(c.front)}</div>`;
 }
 
+/**
+ * 记忆钩子。分「音」「训」两类显示，因为两类的记忆策略完全不同：
+ * 音读词能从汉语推出读音（配合音读规律牌组），训读词只能靠词族和例句。
+ * 明确标出类型，可以让人不在训读词上浪费时间找汉语线索。
+ */
+function hookHTML(e) {
+  if (!e || !e.hook) return '';
+  const tag = e.read === '音' ? '音读·可从汉语推'
+    : e.read === '训' ? '训读·与汉语无关'
+    : e.read ? `${e.read}读` : '记忆钩子';
+  const cls = e.read === '音' ? 'on' : e.read === '训' ? 'kun' : '';
+  return `<div class="hook ${cls}"><span class="hook-tag">${esc(tag)}</span>
+    <div class="hook-body">${esc(e.hook)}</div></div>`;
+}
+
 function backHTML(c) {
   const d = c.deck;
   const e = c.extra || {};
   if (d === 'kana_hira' || d === 'kana_kata') {
+    const src = d === 'kana_hira' ? e.srcHira : e.srcKata;
     return `<div class="q-answer kana">${esc(c.back)}</div>
-      <div class="q-sub">${d === 'kana_hira' ? '片假名' : '平假名'} ${esc(d === 'kana_hira' ? e.kata : e.hira)} · ${esc(e.group || '')}</div>`;
+      <div class="q-sub">${d === 'kana_hira' ? '片假名' : '平假名'} ${esc(d === 'kana_hira' ? e.kata : e.hira)} · ${esc(e.group || '')}</div>
+      ${src ? `<div class="hook"><span class="hook-tag">字源</span>
+        <b style="font-size:22px">${esc(src)}</b>
+        <div class="hook-body">${esc(e.hook || '')}</div></div>` : ''}`;
   }
   if (d === 'kana_rule' || d === 'theory') {
     return `<div class="q-note" style="font-size:14.5px;color:var(--fg)">${esc(c.back)}</div>`;
   }
   if (d === 'vocab_jp2cn') {
     return `<div class="q-answer kana" style="font-size:30px">${esc(e.kana || '')}</div>
-      <div class="q-sub">${esc(e.romaji || '')}</div>
+      <div class="q-sub">${esc(e.romaji || '')}${e.pitch ? ` · 声调 ${esc(e.pitch)}` : ''}</div>
       <div class="q-answer" style="font-size:22px;margin-top:8px">${esc(c.back)}</div>
-      <div class="q-sub">${esc(e.pos || '')}</div>
+      <div class="q-sub">${esc(e.pos || '')}${e.vclass ? ` · ${esc(e.vclass)}` : ''}${e.rank ? ` · 高频第 ${e.rank}` : ''}</div>
+      ${hookHTML(e)}
       ${e.exJp ? `<div class="q-ex"><div class="jp">${esc(e.exJp)}</div><div class="cn">${esc(e.exCn)}</div></div>` : ''}`;
   }
   if (d === 'vocab_cn2jp') {
     return `<div class="q-answer">${esc(c.back)}</div>
       <div class="q-sub kana" style="font-size:20px">${esc(e.kana || '')} · ${esc(e.romaji || '')}</div>
+      ${hookHTML(e)}
       ${e.exJp ? `<div class="q-ex"><div class="jp">${esc(e.exJp)}</div><div class="cn">${esc(e.exCn)}</div></div>` : ''}`;
   }
   if (d === 'grammar') {

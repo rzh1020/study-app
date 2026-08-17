@@ -4,6 +4,7 @@ import { audioCtx, playNote, playSequence, playChord, click, sleep } from '../au
 import { noteName } from '../pitch.js';
 import { db, dayStart } from '../db.js';
 import { getConfig } from '../store.js';
+import { LEVELS, LEVEL_BY_ID, FIXED_ROOT, UNLOCK, levelProgress, suggestLevel, nextSameGap } from '../ear-levels.js';
 
 const INTERVALS = [
   { s: 1, name: '小二度', ref: '《大白鲨》主题' },
@@ -27,99 +28,129 @@ const CHORDS = [
   { name: '增三和弦', steps: [0, 4, 8], hint: '悬浮、怪异' },
 ];
 
-const SCALE = [0, 2, 4, 5, 7, 9, 11, 12]; // 大调音阶（含高八度主音）
+const SCALE = [0, 2, 4, 5, 7, 9, 11, 12];
 const DEGREE_NAMES = ['do', 're', 'mi', 'fa', 'sol', 'la', 'ti', "do'"];
+const TRI = [0, 2, 4]; // SCALE 下标：do mi sol
 
-const MODES = {
-  degree: { name: '音级辨识', desc: '先听主音，再听一个音，判断它是第几级。首调听感的基础。', level: 1 },
-  chord: { name: '和弦性质', desc: '大三 / 小三（进阶加减三、增三）。流行歌 90% 只有前两种。', level: 2 },
-  interval: { name: '音程辨识', desc: '两个音之间差几度。先练 2/3/5/8 度，再补 4/6/7。', level: 3 },
-  melody: { name: '旋律模唱', desc: '听 3-4 个音的短句，选出音级序列。', level: 4 },
-  rhythm: { name: '节奏辨识', desc: '听一小节节奏，选出对应的节奏型。切分感是流行歌的关键。', level: 5 },
-};
+const RHYTHMS = [
+  { name: '四个四分', beats: [1, 1, 1, 1] },
+  { name: '前八后四×2', beats: [0.5, 0.5, 1, 0.5, 0.5, 1] },
+  { name: '八分连续', beats: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5] },
+  { name: '切分（四分-二分-四分）', beats: [1, 2, 1] },
+  { name: '附点四分+八分', beats: [1.5, 0.5, 1.5, 0.5] },
+  { name: '休止在第二拍', beats: [1, -1, 1, 1] },
+];
 
-// 音程/和弦的根音范围：控制在中央区，避免极低极高影响听辨
-const ROOT_LO = 55; // G3
-const ROOT_HI = 67; // G4
-
+const ROOT_LO = 55, ROOT_HI = 67;
 const rand = (n) => Math.floor(Math.random() * n);
-const pick = (arr) => arr[rand(arr.length)];
+const pick = (a) => a[rand(a.length)];
+const shuffle = (a) => {
+  const b = a.slice();
+  for (let i = b.length - 1; i > 0; i--) { const j = rand(i + 1); [b[i], b[j]] = [b[j], b[i]]; }
+  return b;
+};
 
 export async function render(view, { args }) {
   const cfg = await getConfig();
-  const mode = args[0] && MODES[args[0]] ? args[0] : null;
-  if (!mode) return menu(view, cfg);
-  return quiz(view, mode, cfg);
+  const id = args[0];
+  if (!id || !LEVEL_BY_ID[id]) return menu(view, cfg);
+  return quiz(view, LEVEL_BY_ID[id], cfg);
 }
+
+// ---------------- 菜单：课程阶梯 ----------------
 
 async function menu(view, cfg) {
   setTitle('练耳');
-  const rows = await db.byIndex('earlog', 'ts', IDBKeyRange.lowerBound(dayStart()));
   const all = await db.all('earlog');
-  const byMode = {};
-  for (const r of all) {
-    byMode[r.mode] = byMode[r.mode] || { n: 0, ok: 0 };
-    byMode[r.mode].n++;
-    if (r.correct) byMode[r.mode].ok++;
-  }
-  const today = rows.length;
-  const todayOk = rows.filter((r) => r.correct).length;
+  const today = all.filter((r) => r.ts >= dayStart());
+  const prog = levelProgress(all);
+  const next = suggestLevel(prog);
+  const todayOk = today.filter((r) => r.correct).length;
+
+  const card = (l) => {
+    const p = prog[l.id];
+    const isNext = l.id === next;
+    const pill = !p.unlocked ? '<span class="pill dim">未解锁</span>'
+      : p.passed ? '<span class="pill ok">已通关</span>'
+      : p.acc !== null ? `<span class="pill ${p.acc >= UNLOCK.acc ? 'ok' : p.acc >= 0.6 ? 'warn' : 'bad'}">${Math.round(p.acc * 100)}%</span>`
+      : '<span class="pill acc">未开始</span>';
+    return `
+    <div class="card" style="${isNext ? 'border-color:var(--acc)' : p.unlocked ? '' : 'opacity:.55'}">
+      <div class="row spread mb">
+        <div class="grow">
+          <div class="row" style="gap:6px">
+            <b>${esc(l.name)}</b>${pill}
+            ${isNext ? '<span class="pill acc">建议练这个</span>' : ''}
+          </div>
+          <div class="tiny dim">${esc(l.desc)}</div>
+        </div>
+        ${p.unlocked
+          ? `<a class="btn btn-sm ${isNext ? 'btn-pri' : ''}" href="#/ear/${l.id}">进入</a>`
+          : '<button class="btn btn-sm" disabled>🔒</button>'}
+      </div>
+      <div class="tiny" style="color:var(--fg2)">为什么练：${esc(l.why)}</div>
+      ${p.unlocked && !p.passed
+        ? `<div class="bar mt"><i style="width:${Math.min((p.recentN / UNLOCK.window) * 100, 100)}%"></i></div>
+           <div class="tiny dim" style="margin-top:4px">通关条件：最近 ${UNLOCK.window} 题正确率 ≥ ${Math.round(UNLOCK.acc * 100)}%（当前 ${p.recentN}/${UNLOCK.window} 题）· 累计 ${p.total} 题</div>`
+        : p.total ? `<div class="tiny dim mt">累计 ${p.total} 题</div>` : ''}
+    </div>`;
+  };
 
   view.innerHTML = `
     <div class="card">
       <div class="row spread">
-        <div><div class="tk-t">今天 ${today} / ${cfg.earDailyTarget} 题</div>
-        <div class="tk-s">正确率 ${today ? Math.round((todayOk / today) * 100) : 0}%</div></div>
-        <div class="pill ${today >= cfg.earDailyTarget ? 'ok' : 'acc'}">${today >= cfg.earDailyTarget ? '达标' : '进行中'}</div>
+        <div><div class="tk-t">今天 ${today.length} / ${cfg.earDailyTarget} 题</div>
+        <div class="tk-s">正确率 ${today.length ? Math.round((todayOk / today.length) * 100) : 0}%</div></div>
+        <div class="pill ${today.length >= cfg.earDailyTarget ? 'ok' : 'acc'}">${today.length >= cfg.earDailyTarget ? '达标' : '进行中'}</div>
       </div>
-      <div class="bar mt"><i style="width:${Math.min((today / cfg.earDailyTarget) * 100, 100)}%"></i></div>
+      <div class="bar mt"><i style="width:${Math.min((today.length / cfg.earDailyTarget) * 100, 100)}%"></i></div>
     </div>
 
-    <div class="card tight">
-      <div class="tiny dim">戴耳机效果更好。必须先猜再看答案——先看答案只是在验证已知信息，几乎不产生学习。</div>
+    <div class="card" style="border-color:rgba(91,140,255,.4);background:rgba(91,140,255,.06)">
+      <h3 style="color:var(--acc)">零基础从①开始，不要跳</h3>
+      <div class="small muted">前四级不需要任何乐理知识，主音固定在 C4。
+      每一级都有「熟悉模式」——先听声音并直接看答案，可以无限重听，等听感建立了再测试。
+      连续正确率达标才解锁下一级：练够不着的难度只会变成乱猜，乱猜不产生学习。</div>
+      <a class="btn btn-pri btn-block mt" href="#/ear/${next}">从${esc(LEVEL_BY_ID[next].name)}开始</a>
     </div>
 
-    ${Object.entries(MODES).map(([k, m]) => {
-      const s = byMode[k];
-      const acc = s && s.n ? Math.round((s.ok / s.n) * 100) : null;
-      return `
-      <div class="card">
-        <div class="row spread mb">
-          <div class="grow">
-            <div class="row" style="gap:6px"><b>${esc(m.name)}</b>
-            ${acc !== null ? `<span class="pill ${acc >= 90 ? 'ok' : acc >= 70 ? '' : 'warn'}">${acc}%</span>` : '<span class="pill dim">未开始</span>'}</div>
-            <div class="tiny dim">${esc(m.desc)}</div>
-          </div>
-          <a class="btn btn-sm btn-pri" href="#/ear/${k}">开始</a>
-        </div>
-        ${s ? `<div class="tiny dim">累计 ${s.n} 题</div>` : ''}
-      </div>`;
-    }).join('')}
+    <div class="sec-title">入门（不需要乐理基础）</div>
+    ${LEVELS.filter((l) => l.tier === '入门').map(card).join('')}
+    <div class="sec-title">进阶</div>
+    ${LEVELS.filter((l) => l.tier === '进阶').map(card).join('')}
 
     <div class="card tight">
-      <div class="tiny dim">建议顺序：音级 → 和弦 → 音程 → 旋律 → 节奏。前一项正确率稳定 90% 以上再进下一项，
-      否则是在用蒙的方式做题。</div>
+      <div class="tiny dim">戴耳机效果更好。手机扬声器低频缺失，会让低音区的判断变难。</div>
     </div>
   `;
 }
 
-function quiz(view, mode, cfg) {
-  setTitle(MODES[mode].name, '<a class="pill" href="#/ear">返回</a>');
-  let q = null;
-  let answered = false;
-  let n = 0, ok = 0;
-  let destroyed = false;
+// ---------------- 出题 ----------------
+
+function quiz(view, level, cfg) {
+  setTitle(level.name, '<a class="pill" href="#/ear">阶梯</a>');
+  const a4 = cfg.a4;
+  let q = null, answered = false, n = 0, ok = 0, destroyed = false;
+  let learnMode = false;      // 熟悉模式：直接显示答案
+  let logs = [];              // 本级历史，用于自适应
 
   view.innerHTML = `
     <div class="row spread mb">
       <div class="progress-mini"><span>本轮 <b id="qn">0</b></span><span>正确 <b id="qok">0</b></span><span id="qacc"></span></div>
-      <a class="pill" href="#/ear">结束</a>
+      <label class="row tiny dim" style="gap:5px;margin:0">
+        <input type="checkbox" id="cbLearn" style="width:auto"> 熟悉模式
+      </label>
+    </div>
+    <div class="card tight" id="learnTip" style="display:none;border-color:rgba(242,178,62,.5);background:rgba(242,178,62,.07)">
+      <div class="tiny" style="color:var(--warn)">熟悉模式：答案已经显示出来了。反复点播放，把声音和名称对上。
+      听出感觉了就取消勾选开始测试 —— 熟悉模式的作答不计入正确率。</div>
     </div>
     <div class="card center" id="qbox">
       <div class="small muted" id="qtext">准备…</div>
+      <div id="qextra" class="tiny dim"></div>
       <div class="btn-row mt">
         <button class="btn btn-pri" id="btnPlay">▶ 播放</button>
-        <button class="btn btn-ghost" id="btnRef" title="重听参考音">🎵 主音</button>
+        <button class="btn btn-ghost" id="btnRef" title="重听参考音">🎵 参考音</button>
       </div>
     </div>
     <div id="opts"></div>
@@ -127,65 +158,116 @@ function quiz(view, mode, cfg) {
     <div class="tiny dim center" style="margin-top:12px" id="tip"></div>
   `;
 
-  const optsEl = $('#opts');
-  const fbEl = $('#fb');
+  const optsEl = $('#opts'), fbEl = $('#fb');
+
+  $('#cbLearn').onchange = (e) => {
+    learnMode = e.target.checked;
+    $('#learnTip').style.display = learnMode ? '' : 'none';
+    newQuestion();
+  };
+
+  async function loadLogs() {
+    logs = (await db.all('earlog')).filter((r) => r.mode === level.id).sort((a, b) => a.ts - b.ts);
+  }
 
   function newQuestion() {
     answered = false;
     fbEl.classList.add('hidden');
-    const a4 = cfg.a4;
-    if (mode === 'degree') {
-      const root = ROOT_LO + rand(ROOT_HI - ROOT_LO + 1);
-      const di = 1 + rand(SCALE.length - 1); // 不出主音本身（太简单）
-      q = { root, degIdx: di, target: root + SCALE[di], a4 };
-      $('#qtext').textContent = '先听主音（do），再听目标音。它是第几级？';
-    } else if (mode === 'chord') {
-      const pool = n < 12 ? CHORDS.slice(0, 2) : CHORDS; // 前 12 题只出大小三
-      const c = pick(pool);
-      const root = ROOT_LO + rand(ROOT_HI - ROOT_LO + 1);
-      q = { root, chord: c, pool, a4 };
-      $('#qtext').textContent = pool.length === 2 ? '大三还是小三？' : '这是什么和弦？';
-    } else if (mode === 'interval') {
-      const pool = n < 15 ? INTERVALS.filter((i) => [2, 3, 4, 7, 12].includes(i.s)) : INTERVALS;
-      const iv = pick(pool);
-      const root = ROOT_LO + rand(ROOT_HI - ROOT_LO + 1);
-      q = { root, iv, pool, a4 };
-      $('#qtext').textContent = '两个音相差多少？';
-    } else if (mode === 'melody') {
-      const root = ROOT_LO + rand(ROOT_HI - ROOT_LO + 1);
-      const len = n < 10 ? 3 : 4;
-      const seq = Array.from({ length: len }, () => rand(SCALE.length - 1));
-      seq[0] = 0; // 从主音起，给听觉一个锚
-      const wrongs = [];
-      for (let k = 0; k < 3; k++) {
-        const w = seq.slice();
-        // 只改一个音，逼你听清具体哪一个音不同，而不是靠整体轮廓蒙
-        let pos = 1 + rand(len - 1);
-        let nv = rand(SCALE.length - 1);
-        let guard = 0;
-        while (nv === w[pos] && guard++ < 20) nv = rand(SCALE.length - 1);
-        w[pos] = nv;
-        if (!wrongs.some((x) => x.join() === w.join()) && w.join() !== seq.join()) wrongs.push(w);
+    $('#qextra').textContent = '';
+    switch (level.kind) {
+      case 'pair2': {
+        // 高低：差距从 12 半音（一个八度，极易）随正确率收窄
+        const recent = logs.slice(-8);
+        const acc = recent.length >= 4 ? recent.filter((r) => r.correct).length / recent.length : 0;
+        const gap = acc >= 0.85 ? pick([2, 3, 4]) : acc >= 0.6 ? pick([5, 7]) : pick([7, 12]);
+        const up = Math.random() < 0.5;
+        q = { root: FIXED_ROOT, gap, up, answer: up ? '更高' : '更低' };
+        $('#qtext').textContent = '第二个音比第一个高还是低？';
+        $('#qextra').textContent = `当前难度：相差 ${gap} 个半音（越小越难）`;
+        break;
       }
-      q = { root, seq, options: shuffle([seq, ...wrongs]), a4 };
-      $('#qtext').textContent = '听旋律，选出对应的音级序列。';
-    } else {
-      // rhythm: 一小节 4/4，用 1=四分音符 0.5=八分 的时值序列表示
-      const PATTERNS = [
-        { name: '四个四分', beats: [1, 1, 1, 1] },
-        { name: '前八后四×2', beats: [0.5, 0.5, 1, 0.5, 0.5, 1] },
-        { name: '八分连续', beats: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5] },
-        { name: '切分（四分-二分-四分）', beats: [1, 2, 1] },
-        { name: '附点四分+八分', beats: [1.5, 0.5, 1.5, 0.5] },
-        { name: '休止在第二拍', beats: [1, -1, 1, 1] },
-      ];
-      const pool = n < 10 ? PATTERNS.slice(0, 4) : PATTERNS;
-      const p = pick(pool);
-      q = { pat: p, pool, a4 };
-      $('#qtext').textContent = '听一小节节奏（先有两拍预备），选节奏型。';
+      case 'same': {
+        const gap = nextSameGap(logs.map((r) => ({ ...r, mode: level.id })));
+        const isSame = Math.random() < 0.45;
+        q = { root: FIXED_ROOT, gap, isSame, up: Math.random() < 0.5, answer: isSame ? '一样' : '不一样' };
+        $('#qtext').textContent = '这两个音一样吗？';
+        $('#qextra').textContent = `当前难度：不同时相差 ${gap} 个半音（会随你的表现自动调整）`;
+        break;
+      }
+      case 'contour': {
+        const shapes = {
+          上行: [0, 2, 4], 下行: [4, 2, 0],
+          先上后下: [0, 4, 1], 先下后上: [4, 0, 3],
+        };
+        const name = pick(Object.keys(shapes));
+        q = { root: FIXED_ROOT, seq: shapes[name].map((i) => SCALE[i]), answer: name };
+        $('#qtext').textContent = '这三个音的走向是？';
+        break;
+      }
+      case 'degree3': {
+        const i = pick(TRI);
+        q = { root: FIXED_ROOT, degIdx: i, answer: DEGREE_NAMES[i] };
+        $('#qtext').textContent = '先听 do（参考），再听目标音。它是哪个？';
+        $('#qextra').textContent = '只可能是 do、mi、sol 三个之一';
+        break;
+      }
+      case 'degree': {
+        // 前 30 题固定主音，之后随机（随机主音才是真正的相对音高）
+        const fixed = logs.length < 30;
+        const root = fixed ? FIXED_ROOT : ROOT_LO + rand(ROOT_HI - ROOT_LO + 1);
+        const di = 1 + rand(SCALE.length - 1);
+        q = { root, degIdx: di, answer: String(di) };
+        $('#qtext').textContent = '先听主音（do），再听目标音。它是第几级？';
+        $('#qextra').textContent = fixed
+          ? `主音固定在 ${noteName(FIXED_ROOT)}（还有 ${30 - logs.length} 题后改为随机主音）`
+          : `主音随机：${noteName(root)}`;
+        break;
+      }
+      case 'chord': {
+        const pool = logs.length < 15 ? CHORDS.slice(0, 2) : CHORDS;
+        const c = pick(pool);
+        q = { root: logs.length < 15 ? FIXED_ROOT : ROOT_LO + rand(ROOT_HI - ROOT_LO + 1), chord: c, pool, answer: c.name };
+        $('#qtext').textContent = pool.length === 2 ? '大三还是小三？' : '这是什么和弦？';
+        $('#qextra').textContent = pool.length === 2 ? '大三明亮稳定，小三偏暗偏柔' : '';
+        break;
+      }
+      case 'interval': {
+        const pool = logs.length < 18 ? INTERVALS.filter((i) => [2, 3, 4, 7, 12].includes(i.s)) : INTERVALS;
+        const iv = pick(pool);
+        q = { root: ROOT_LO + rand(ROOT_HI - ROOT_LO + 1), iv, pool, answer: String(iv.s) };
+        $('#qtext').textContent = '两个音相差多少？';
+        break;
+      }
+      case 'melody': {
+        const len = logs.length < 12 ? 3 : 4;
+        const root = logs.length < 12 ? FIXED_ROOT : ROOT_LO + rand(ROOT_HI - ROOT_LO + 1);
+        const seq = Array.from({ length: len }, () => rand(SCALE.length - 1));
+        seq[0] = 0;
+        const wrongs = [];
+        for (let k = 0; k < 3; k++) {
+          const w = seq.slice();
+          const pos = 1 + rand(len - 1);
+          let nv = rand(SCALE.length - 1), guard = 0;
+          while (nv === w[pos] && guard++ < 20) nv = rand(SCALE.length - 1);
+          w[pos] = nv;
+          if (!wrongs.some((x) => x.join() === w.join()) && w.join() !== seq.join()) wrongs.push(w);
+        }
+        const options = shuffle([seq, ...wrongs]);
+        q = { root, seq, options, answer: String(options.findIndex((o) => o.join() === seq.join())) };
+        $('#qtext').textContent = '听旋律，选出对应的音级序列';
+        break;
+      }
+      default: {
+        const pool = logs.length < 10 ? RHYTHMS.slice(0, 4) : RHYTHMS;
+        const p = pick(pool);
+        q = { pat: p, pool, answer: p.name };
+        $('#qtext').textContent = '听一小节节奏（先有两拍预备），选节奏型';
+      }
     }
     renderOptions();
-    $('#tip').textContent = '先做出判断再选，答错会给出重听机会。';
+    $('#tip').textContent = learnMode
+      ? '答案已标出。反复听，把声音和名字对应起来。'
+      : '先做出判断再选。答错会自动重播一次。';
     play();
   }
 
@@ -194,28 +276,43 @@ function quiz(view, mode, cfg) {
     const btn = $('#btnPlay');
     btn.disabled = true;
     try {
-      if (mode === 'degree') {
-        await playNote(q.root, 0.6, { a4: q.a4 });
-        await sleep(160);
-        await playNote(q.target, 0.7, { a4: q.a4 });
-      } else if (mode === 'chord') {
-        await playChord(q.chord.steps.map((s) => q.root + s), 1.4, { a4: q.a4 });
-      } else if (mode === 'interval') {
-        await playNote(q.root, 0.55, { a4: q.a4 });
-        await sleep(90);
-        await playNote(q.root + q.iv.s, 0.65, { a4: q.a4 });
-        await sleep(200);
-        await playChord([q.root, q.root + q.iv.s], 0.9, { a4: q.a4 }); // 再叠一次，帮助听和声色彩
-      } else if (mode === 'melody') {
-        await playSequence(q.seq.map((i) => q.root + SCALE[i]), 0.45, 0.04, { a4: q.a4 });
-      } else {
-        const bpm = 92;
-        const beat = 60 / bpm;
-        click(true); await sleep(beat * 1000);
-        click(); await sleep(beat * 1000);
-        for (const b of q.pat.beats) {
-          if (b > 0) click(false);
-          await sleep(Math.abs(b) * beat * 1000);
+      switch (level.kind) {
+        case 'pair2': {
+          const second = q.root + (q.up ? q.gap : -q.gap);
+          await playNote(q.root, 0.6, { a4 }); await sleep(180);
+          await playNote(second, 0.7, { a4 });
+          break;
+        }
+        case 'same': {
+          const second = q.isSame ? q.root : q.root + (q.up ? q.gap : -q.gap);
+          await playNote(q.root, 0.6, { a4 }); await sleep(180);
+          await playNote(second, 0.7, { a4 });
+          break;
+        }
+        case 'contour':
+          await playSequence(q.seq.map((s) => q.root + s), 0.45, 0.05, { a4 });
+          break;
+        case 'degree3':
+        case 'degree':
+          await playNote(q.root, 0.6, { a4 }); await sleep(180);
+          await playNote(q.root + SCALE[q.degIdx], 0.7, { a4 });
+          break;
+        case 'chord':
+          await playChord(q.chord.steps.map((s) => q.root + s), 1.4, { a4 });
+          break;
+        case 'interval':
+          await playNote(q.root, 0.55, { a4 }); await sleep(90);
+          await playNote(q.root + q.iv.s, 0.65, { a4 }); await sleep(200);
+          await playChord([q.root, q.root + q.iv.s], 0.9, { a4 });
+          break;
+        case 'melody':
+          await playSequence(q.seq.map((i) => q.root + SCALE[i]), 0.45, 0.04, { a4 });
+          break;
+        default: {
+          const beat = 60 / 92;
+          click(true); await sleep(beat * 1000);
+          click(); await sleep(beat * 1000);
+          for (const b of q.pat.beats) { if (b > 0) click(false); await sleep(Math.abs(b) * beat * 1000); }
         }
       }
     } finally {
@@ -225,93 +322,114 @@ function quiz(view, mode, cfg) {
 
   function renderOptions() {
     let html = '';
-    if (mode === 'degree') {
+    if (level.options) {
+      const cls = level.options.length > 2 ? 'c2' : 'c2';
+      html = `<div class="opt-grid ${cls}">${level.options.map((o) =>
+        `<button data-k="${esc(o)}"><b>${esc(o)}</b></button>`).join('')}</div>`;
+    } else if (level.kind === 'degree3') {
+      html = `<div class="opt-grid c3">${TRI.map((i) =>
+        `<button data-k="${DEGREE_NAMES[i]}"><b>${DEGREE_NAMES[i]}</b><small>第 ${i + 1} 级</small></button>`).join('')}</div>`;
+    } else if (level.kind === 'degree') {
       html = `<div class="opt-grid c4">${SCALE.slice(1).map((s, i) =>
-        `<button data-i="${i + 1}"><b>${i + 2}</b><small>${DEGREE_NAMES[i + 1]}</small></button>`).join('')}</div>`;
-    } else if (mode === 'chord') {
-      html = `<div class="opt-grid ${q.pool.length > 2 ? 'c2' : 'c2'}">${q.pool.map((c) =>
-        `<button data-name="${esc(c.name)}"><b>${esc(c.name)}</b><small>${esc(c.hint)}</small></button>`).join('')}</div>`;
-    } else if (mode === 'interval') {
+        `<button data-k="${i + 1}"><b>${i + 2}</b><small>${DEGREE_NAMES[i + 1]}</small></button>`).join('')}</div>`;
+    } else if (level.kind === 'chord') {
+      html = `<div class="opt-grid c2">${q.pool.map((c) =>
+        `<button data-k="${esc(c.name)}"><b>${esc(c.name)}</b><small>${esc(c.hint)}</small></button>`).join('')}</div>`;
+    } else if (level.kind === 'interval') {
       html = `<div class="opt-grid ${q.pool.length > 6 ? 'c3' : 'c2'}">${q.pool.map((iv) =>
-        `<button data-s="${iv.s}"><b>${esc(iv.name)}</b><small>${iv.s} 半音</small></button>`).join('')}</div>`;
-    } else if (mode === 'melody') {
+        `<button data-k="${iv.s}"><b>${esc(iv.name)}</b><small>${iv.s} 半音</small></button>`).join('')}</div>`;
+    } else if (level.kind === 'melody') {
       html = `<div class="opt-grid">${q.options.map((o, i) =>
-        `<button data-o="${i}"><b>${o.map((x) => DEGREE_NAMES[x]).join(' ')}</b></button>`).join('')}</div>`;
+        `<button data-k="${i}"><b>${o.map((x) => DEGREE_NAMES[x]).join(' ')}</b></button>`).join('')}</div>`;
     } else {
       html = `<div class="opt-grid">${q.pool.map((p) =>
-        `<button data-name="${esc(p.name)}"><b style="font-size:13px">${esc(p.name)}</b></button>`).join('')}</div>`;
+        `<button data-k="${esc(p.name)}"><b style="font-size:13px">${esc(p.name)}</b></button>`).join('')}</div>`;
     }
     optsEl.innerHTML = html;
-    optsEl.querySelectorAll('button').forEach((b) => (b.onclick = () => answer(b)));
-  }
-
-  function correctKey() {
-    if (mode === 'degree') return String(q.degIdx);
-    if (mode === 'chord') return q.chord.name;
-    if (mode === 'interval') return String(q.iv.s);
-    if (mode === 'melody') return String(q.options.findIndex((o) => o.join() === q.seq.join()));
-    return q.pat.name;
-  }
-  function keyOf(btn) {
-    return btn.dataset.i ?? btn.dataset.name ?? btn.dataset.s ?? btn.dataset.o;
+    optsEl.querySelectorAll('button').forEach((b) => {
+      if (learnMode && b.dataset.k === q.answer) b.classList.add('right');
+      b.onclick = () => answer(b);
+    });
   }
 
   async function answer(btn) {
     if (answered) return;
     answered = true;
-    const correct = keyOf(btn) === correctKey();
-    n++;
-    if (correct) ok++;
+    const correct = btn.dataset.k === q.answer;
     optsEl.querySelectorAll('button').forEach((b) => {
-      const k = keyOf(b);
-      if (k === correctKey()) b.classList.add('right');
+      if (b.dataset.k === q.answer) b.classList.add('right');
       else if (b === btn) b.classList.add('wrong');
       b.disabled = true;
     });
-    $('#qn').textContent = n;
-    $('#qok').textContent = ok;
-    $('#qacc').innerHTML = `<span class="${ok / n >= 0.9 ? 'pill ok' : 'pill'}">${Math.round((ok / n) * 100)}%</span>`;
 
-    await db.add('earlog', { ts: Date.now(), mode, correct: correct ? 1 : 0, item: correctKey(), chose: keyOf(btn) });
+    if (!learnMode) {
+      n++; if (correct) ok++;
+      $('#qn').textContent = n;
+      $('#qok').textContent = ok;
+      $('#qacc').innerHTML = `<span class="pill ${ok / n >= UNLOCK.acc ? 'ok' : ''}">${Math.round((ok / n) * 100)}%</span>`;
+      const rec = {
+        ts: Date.now(), mode: level.id, correct: correct ? 1 : 0,
+        item: q.answer, chose: btn.dataset.k,
+      };
+      if (q.gap) rec.gap = q.gap;
+      await db.add('earlog', rec);
+      logs.push(rec);
+    }
 
     fbEl.classList.remove('hidden');
     fbEl.innerHTML = `
-      <div class="row spread">
-        <div class="grow small">
-          ${correct ? '<span style="color:var(--ok)">✓ 对</span>' : '<span style="color:var(--bad)">✗ 错</span>'}
-          ${explain()}
-        </div>
-      </div>
+      <div class="small">${learnMode ? '<span class="pill">熟悉模式·不计分</span>'
+        : correct ? '<span style="color:var(--ok)">✓ 对</span>' : '<span style="color:var(--bad)">✗ 错</span>'}
+        ${explain()}</div>
       <div class="btn-row mt">
         <button class="btn btn-sm btn-ghost" id="btnAgain">重听</button>
         <button class="btn btn-sm btn-pri" id="btnNext">下一题</button>
-      </div>`;
+      </div>
+      ${!learnMode && n >= UNLOCK.window && ok / n >= UNLOCK.acc
+        ? '<div class="tiny mt" style="color:var(--ok)">这一级已达标，回阶梯可以进下一级了</div>' : ''}`;
     $('#btnAgain').onclick = play;
     $('#btnNext').onclick = newQuestion;
-    // 答错必须重听一遍：只看正确答案不会修正听觉判别
-    if (!correct) { await sleep(300); play(); }
+    if (!correct && !learnMode) { await sleep(350); play(); }
   }
 
   function explain() {
-    if (mode === 'degree') return ` 主音 ${noteName(q.root)}，目标 ${noteName(q.target)} = 第 ${q.degIdx + 1} 级（${DEGREE_NAMES[q.degIdx]}），差 ${SCALE[q.degIdx]} 个半音。`;
-    if (mode === 'chord') return ` ${esc(q.chord.name)}：根音 ${noteName(q.root)}，结构 +${q.chord.steps[1]}+${q.chord.steps[2] - q.chord.steps[1]} 半音。${esc(q.chord.hint)}`;
-    if (mode === 'interval') return ` ${esc(q.iv.name)}（${q.iv.s} 半音）。参考旋律：${esc(q.iv.ref)}`;
-    if (mode === 'melody') return ` 正确序列 ${q.seq.map((x) => DEGREE_NAMES[x]).join(' ')}，起音 ${noteName(q.root)}。`;
-    return ` ${esc(q.pat.name)}`;
+    switch (level.kind) {
+      case 'pair2': {
+        const second = q.root + (q.up ? q.gap : -q.gap);
+        return ` ${noteName(q.root)} → ${noteName(second)}，${q.up ? '上行' : '下行'} ${q.gap} 个半音。`;
+      }
+      case 'same': {
+        if (q.isSame) return ` 两个音都是 ${noteName(q.root)}，完全相同。`;
+        const second = q.root + (q.up ? q.gap : -q.gap);
+        return ` ${noteName(q.root)} → ${noteName(second)}，相差 ${q.gap} 个半音。`;
+      }
+      case 'contour':
+        return ` ${q.seq.map((s) => noteName(q.root + s)).join(' → ')}，走向是${q.answer}。`;
+      case 'degree3':
+      case 'degree':
+        return ` 主音 ${noteName(q.root)}，目标 ${noteName(q.root + SCALE[q.degIdx])} = 第 ${q.degIdx + 1} 级（${DEGREE_NAMES[q.degIdx]}），差 ${SCALE[q.degIdx]} 个半音。`;
+      case 'chord':
+        return ` ${esc(q.chord.name)}：根音 ${noteName(q.root)}，${esc(q.chord.hint)}。`;
+      case 'interval':
+        return ` ${esc(q.iv.name)}（${q.iv.s} 半音）。参考旋律：${esc(q.iv.ref)}`;
+      case 'melody':
+        return ` 正确序列 ${q.seq.map((x) => DEGREE_NAMES[x]).join(' ')}，起音 ${noteName(q.root)}。`;
+      default:
+        return ` ${esc(q.pat.name)}`;
+    }
   }
 
   $('#btnPlay').onclick = play;
-  $('#btnRef').onclick = () => playNote(mode === 'rhythm' ? 69 : q.root, 0.8, { a4: cfg.a4 });
-  newQuestion();
+  $('#btnRef').onclick = () => {
+    if (level.kind === 'rhythm') { click(true); return; }
+    playNote(q && q.root ? q.root : FIXED_ROOT, 0.9, { a4 });
+  };
+
+  loadLogs().then(() => {
+    // 从没练过这一级就默认开熟悉模式：第一次接触直接测试等于乱猜
+    if (!logs.length) { learnMode = true; $('#cbLearn').checked = true; $('#learnTip').style.display = ''; }
+    newQuestion();
+  });
 
   return { destroy() { destroyed = true; } };
-}
-
-function shuffle(a) {
-  const b = a.slice();
-  for (let i = b.length - 1; i > 0; i--) {
-    const j = rand(i + 1);
-    [b[i], b[j]] = [b[j], b[i]];
-  }
-  return b;
 }

@@ -148,7 +148,7 @@ async function main() {
     const { db } = await import('./js/db.js');
     return (await db.count('cards'));
   });
-  ok('卡片已种入 IndexedDB', cardCount > 400, `实际 ${cardCount}`);
+  ok('卡片已种入 IndexedDB', cardCount > 4000, `实际 ${cardCount}`);
 
   const deckCounts = await page.evaluate(async () => {
     const { deckStats } = await import('./js/store.js');
@@ -157,7 +157,7 @@ async function main() {
   ok('7 个牌组都有卡', Object.keys(deckCounts).length === 7 && Object.values(deckCounts).every((s) => s.total > 0),
     JSON.stringify(Object.fromEntries(Object.entries(deckCounts).map(([k, v]) => [k, v.total]))));
   ok('平假名 104 张', deckCounts.kana_hira.total === 104, String(deckCounts.kana_hira.total));
-  ok('词汇 185 张', deckCounts.vocab_jp2cn.total === 185, String(deckCounts.vocab_jp2cn.total));
+  ok('词汇 2000 张', deckCounts.vocab_jp2cn.total === 2000, String(deckCounts.vocab_jp2cn.total));
 
   console.log('\n=== 首页 ===');
   await goto('#/home');
@@ -238,19 +238,36 @@ async function main() {
 
   console.log('\n=== 练耳 ===');
   await goto('#/ear');
-  ok('练耳菜单 5 种模式', (await page.$$('#view a.btn-sm')).length >= 5, String((await page.$$('#view a.btn-sm')).length));
+  // 未解锁的级渲染成 disabled 按钮而不是链接（渐进解锁），所以按「为什么练」计数
+  const ladderText = await page.$eval('#view', (e) => e.innerText);
+  ok('练耳阶梯列出 9 级', (ladderText.match(/为什么练/g) || []).length === 9,
+    String((ladderText.match(/为什么练/g) || []).length));
+  ok('只有第一级解锁（渐进解锁生效）',
+    (await page.$$('#view a[href^="#/ear/"]')).length === 2,
+    String((await page.$$('#view a[href^="#/ear/"]')).length));
+  ok('有未解锁的锁定按钮', (await page.$$('#view button[disabled]')).length >= 7,
+    String((await page.$$('#view button[disabled]')).length));
   await shot('06-ear-menu');
 
-  for (const mode of ['degree', 'chord', 'interval', 'melody', 'rhythm']) {
+  for (const mode of ['highlow', 'same', 'contour', 'tri', 'degree', 'chord', 'interval', 'melody', 'rhythm']) {
     await goto(`#/ear/${mode}`);
-    await sleep(500);
+    await sleep(600);
+    // 第一次进某一级会自动开「熟悉模式」（直接显示答案、不计分），
+    // 这里关掉它以测试真正的计分路径
+    const wasLearn = await page.$eval('#cbLearn', (e) => e.checked);
+    if (wasLearn) {
+      await page.click('#cbLearn');
+      await sleep(700);
+    }
+    ok(`${mode} 首次进入默认开熟悉模式`, wasLearn === true, String(wasLearn));
     const opts = await page.$$('#opts button');
     ok(`${mode} 出题并渲染选项`, opts.length >= 2, `${opts.length} 个选项`);
     if (opts.length) {
       await opts[0].click();
-      await sleep(600);
+      await sleep(700);
       const fb = await page.$eval('#fb', (e) => e.innerText).catch(() => '');
-      ok(`${mode} 作答后有反馈`, /对|错/.test(fb), fb.slice(0, 50).replace(/\n/g, '|'));
+      ok(`${mode} 作答后计分并给出解释`, /✓ 对|✗ 错/.test(fb) && fb.length > 12,
+        fb.slice(0, 60).replace(/\n/g, '|'));
       const marked = await page.$$('#opts button.right');
       ok(`${mode} 标出了正确答案`, marked.length === 1, `${marked.length}`);
     }
@@ -261,7 +278,38 @@ async function main() {
     const { db } = await import('./js/db.js');
     return (await db.all('earlog')).length;
   });
-  ok('练耳记录已落库', earLog === 5, String(earLog));
+  // 熟悉模式的作答不计分不落库；第一次进某一级会自动开熟悉模式，
+  // 所以这里只断言「有记录」而不是精确条数
+  ok('练耳记录已落库（9 级各 1 题）', earLog === 9, String(earLog));
+
+  // 自适应难度：「同异」级的半音差应随表现变化，而不是恒定
+  const adaptive = await page.evaluate(async () => {
+    const { nextSameGap } = await import('./js/ear-levels.js');
+    const good = Array.from({ length: 6 }, () => ({ mode: 'same', correct: 1, gap: 4 }));
+    const bad = Array.from({ length: 6 }, () => ({ mode: 'same', correct: 0, gap: 4 }));
+    return { onGood: nextSameGap(good), onBad: nextSameGap(bad), initial: nextSameGap([]) };
+  });
+  ok('答对后难度收窄', adaptive.onGood < 4, JSON.stringify(adaptive));
+  ok('答错后难度放宽', adaptive.onBad > 4, JSON.stringify(adaptive));
+  ok('无历史时给初始难度', adaptive.initial === 5, String(adaptive.initial));
+
+  // 解锁逻辑：第一级永远解锁，后面的要前一级达标
+  const unlock = await page.evaluate(async () => {
+    const { levelProgress, LEVELS, UNLOCK } = await import('./js/ear-levels.js');
+    const empty = levelProgress([]);
+    const passFirst = levelProgress(
+      Array.from({ length: UNLOCK.window }, (_, i) => ({ mode: 'highlow', correct: 1, ts: i })));
+    return {
+      firstUnlockedEmpty: empty[LEVELS[0].id].unlocked,
+      secondLockedEmpty: empty[LEVELS[1].id].unlocked,
+      secondUnlockedAfter: passFirst[LEVELS[1].id].unlocked,
+      thirdStillLocked: passFirst[LEVELS[2].id].unlocked,
+    };
+  });
+  ok('第一级默认解锁', unlock.firstUnlockedEmpty === true);
+  ok('第二级初始锁定', unlock.secondLockedEmpty === false);
+  ok('第一级达标后解锁第二级', unlock.secondUnlockedAfter === true);
+  ok('第三级仍锁定（逐级解锁）', unlock.thirdStillLocked === false);
 
   console.log('\n=== 练声：音准页（含麦克风）===');
   await goto('#/voice');
@@ -448,13 +496,34 @@ async function main() {
   });
   ok('自定义词表已导入 3 条', custom === 3, String(custom));
 
+  console.log('\n=== 种卡的孤儿清理（数据集换代时不能留僵尸卡，但要保住自导入卡）===');
+  const prune = await page.evaluate(async () => {
+    const { db } = await import('./js/db.js');
+    const { seed } = await import('./js/store.js');
+    const { newCardState } = await import('./js/fsrs.js');
+    // 造一张「内置牌组里但不在 seeds 中」的旧卡（模拟数据集换代遗留）
+    await db.put('cards', { id: 'vj-v-999-legacy', deck: 'vocab_jp2cn', seq: 9999,
+      front: '旧卡', back: 'legacy', extra: {}, suspended: 0, ...newCardState() });
+    // 再造一张用户自己导入的卡，它必须被豁免
+    await db.put('cards', { id: 'u-vocab_jp2cn-mycard', deck: 'vocab_jp2cn', seq: 9998,
+      front: 'やめて', back: '停下', extra: { custom: true }, suspended: 0, ...newCardState() });
+    const before = await db.count('cards');
+    const r = await seed();
+    const legacy = await db.get('cards', 'vj-v-999-legacy');
+    const mine = await db.get('cards', 'u-vocab_jp2cn-mycard');
+    return { before, after: await db.count('cards'), removed: r.removed,
+             legacyGone: !legacy, mineKept: !!mine };
+  });
+  ok('孤儿卡被清理', prune.legacyGone === true && prune.removed >= 1, JSON.stringify(prune));
+  ok('自导入卡被豁免', prune.mineKept === true, JSON.stringify(prune));
+
   console.log('\n=== 备份导出/导入 ===');
   const exported = await page.evaluate(async () => {
     const { exportAll } = await import('./js/store.js');
     const d = await exportAll();
     return { app: d.app, cards: d.cards.length, reviews: d.reviews.length, hasAudioField: JSON.stringify(d.voice).includes('"audio"') };
   });
-  ok('导出结构正确', exported.app === 'study-app' && exported.cards > 400 && exported.reviews === 7, JSON.stringify(exported));
+  ok('导出结构正确', exported.app === 'study-app' && exported.cards > 4000 && exported.reviews === 7, JSON.stringify(exported));
   ok('导出不含录音 Blob', exported.hasAudioField === false);
 
   console.log('\n=== 12 周计划页 ===');
@@ -492,7 +561,8 @@ async function main() {
     return { cards: await db.count('cards'), reviews: await db.count('reviews') };
   });
   ok('重载后数据仍在', after.reviews === 7, JSON.stringify(after));
-  ok('二次种卡不产生重复', after.cards === cardCount + 3, `${cardCount}+3 vs ${after.cards}`);
+  // +4 = TSV 导入的 3 张 + 孤儿清理测试留下的 1 张自导入卡（它被正确豁免了）
+  ok('二次种卡不产生重复', after.cards === cardCount + 4, `${cardCount}+4 vs ${after.cards}`);
 
   console.log('\n=== 离线可用性（地铁场景）===');
   // 先 reload 一次让 SW 接管导航请求，再切断网络验证是否真能离线启动

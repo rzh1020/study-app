@@ -86,7 +86,9 @@ window.addEventListener('orientationchange', onResize);
 async function boot() {
   try {
     const r = await seed();
-    if (r.added) console.log(`种卡: 新增 ${r.added}, 更新 ${r.updated}, 共 ${r.total}`);
+    if (r.added || r.updated || r.removed) {
+      console.log(`种卡: 新增 ${r.added}, 更新 ${r.updated}, 清理孤儿 ${r.removed}, 共 ${r.total}`);
+    }
   } catch (err) {
     console.error('种卡失败', err);
     toast('数据加载失败，检查是否用 http 打开而非 file://', 5000);

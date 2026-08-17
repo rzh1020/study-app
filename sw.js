@@ -23,6 +23,7 @@ const ASSETS = [
   './js/pitch.js',
   './js/audio.js',
   './js/native.js',
+  './js/ear-levels.js',
   './js/views/home.js',
   './js/views/jp.js',
   './js/views/review.js',

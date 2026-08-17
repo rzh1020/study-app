@@ -93,11 +93,20 @@ export async function buildSeedCards() {
   return out;
 }
 
-/** 合并种卡：新增缺失的卡，更新已有卡的正反面内容，但保留记忆状态 */
+/**
+ * 合并种卡：新增缺失的卡、更新已有卡的正反面内容，但**保留记忆状态**。
+ * 保留记忆状态是硬要求 —— 否则往 data/ 里加词就会把几个月的复习进度清零。
+ *
+ * 同时清理孤儿卡：当底层数据集换代（比如词表从手写 187 词换成开放数据的 2000 词，
+ * id 编号规则也变了）时，旧 id 的卡不再出现在 seeds 里，会永远留在库里
+ * 变成学不完的僵尸卡。所以要删掉「属于内置牌组、但已不在 seeds 中」的卡。
+ * 用户自己导入的卡（extra.custom）必须豁免，那是用户数据不是内置数据。
+ */
 export async function seed() {
   const seeds = await buildSeedCards();
   const existing = await db.all('cards');
   const byId = new Map(existing.map((c) => [c.id, c]));
+  const seedIds = new Set(seeds.map((s) => s.id));
   const toPut = [];
   let added = 0, updated = 0;
   for (const s of seeds) {
@@ -109,11 +118,26 @@ export async function seed() {
     }
   }
   if (toPut.length) await db.putMany('cards', toPut);
+
+  const orphans = existing.filter(
+    (c) => !seedIds.has(c.id) && !(c.extra && c.extra.custom) && DECKS[c.deck]
+  );
+  for (const o of orphans) await db.del('cards', o.id);
+
   await metaSet('lastSeed', Date.now());
-  return { added, updated, total: seeds.length };
+  return { added, updated, removed: orphans.length, total: seeds.length };
 }
 
 // ---------- 队列 ----------
+
+/** 原地洗牌（Fisher-Yates）。用于打散复习顺序，消除位置记忆。 */
+function shuffleInPlace(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
 
 async function newDoneToday() {
   return (await metaGet('newDone:' + dayKey())) || {};
@@ -138,7 +162,11 @@ export async function getQueue(deckFilter = null, now = Date.now()) {
     else if (c.due <= now) (c.state === STATE.REVIEW ? review : learn).push(c);
   }
   learn.sort((a, b) => a.due - b.due);
-  review.sort((a, b) => a.due - b.due);
+  // 到期卡按 due 排会导致每天都以相同顺序出现（同一批卡的 due 时刻相近），
+  // 于是记住的是「第 3 张是あ」而不是「あ 读 a」。打乱后位置线索失效。
+  shuffleInPlace(review);
+  // 新卡仍按 seq 决定「引入哪些」（要保证按行/按词频顺序推进），
+  // 但引入之后在当天批次内打乱「出现顺序」，两者不矛盾。
   fresh.sort((a, b) => a.deck.localeCompare(b.deck) || a.seq - b.seq);
 
   // 按每个 deck 的剩余配额挑新卡
@@ -148,6 +176,7 @@ export async function getQueue(deckFilter = null, now = Date.now()) {
   for (const c of fresh) {
     if (quotaLeft[c.deck] > 0) { newPicked.push(c); quotaLeft[c.deck]--; }
   }
+  shuffleInPlace(newPicked);
 
   // 交错：每 3 张到期卡插 1 张新卡，避免开头连着一堆陌生内容
   const dueAll = [...learn, ...review];

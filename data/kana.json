@@ -1,5 +1,5 @@
 {
- "version": 1,
+ "version": 2,
  "cards": [
   {
    "id": "kana-001",
@@ -7,7 +7,10 @@
    "romaji": "a",
    "hira": "あ",
    "kata": "ア",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "安",
+   "srcKata": "阿",
+   "hook": "安 ān 的草书。去掉鼻音尾就是 a。片假名取「阿」的右半。"
   },
   {
    "id": "kana-002",
@@ -15,7 +18,10 @@
    "romaji": "i",
    "hira": "い",
    "kata": "イ",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "以",
+   "srcKata": "伊",
+   "hook": "以 yǐ → i，声母韵母都近。片假名是「伊」的单人旁。"
   },
   {
    "id": "kana-003",
@@ -23,7 +29,10 @@
    "romaji": "u",
    "hira": "う",
    "kata": "ウ",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "宇",
+   "srcKata": "宇",
+   "hook": "宇 yǔ → u。宝盖头简化成一点一横，片假名保留了宝盖的形。"
   },
   {
    "id": "kana-004",
@@ -31,7 +40,10 @@
    "romaji": "e",
    "hira": "え",
    "kata": "エ",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "衣",
+   "srcKata": "江",
+   "hook": "衣的草书，形状像人弯腰。片假名 エ 就是「江」的右半「工」，一眼能认。"
   },
   {
    "id": "kana-005",
@@ -39,7 +51,10 @@
    "romaji": "o",
    "hira": "お",
    "kata": "オ",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "於",
+   "srcKata": "於",
+   "hook": "於 yú → o。片假名取「於」的左半「方」。"
   },
   {
    "id": "kana-006",
@@ -47,7 +62,10 @@
    "romaji": "ka",
    "hira": "か",
    "kata": "カ",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "加",
+   "srcKata": "加",
+   "hook": "加 jiā → ka。「力」还在，「口」简化成一撇。片假名就是「加」的左半。"
   },
   {
    "id": "kana-007",
@@ -55,7 +73,10 @@
    "romaji": "ki",
    "hira": "き",
    "kata": "キ",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "幾",
+   "srcKata": "幾",
+   "hook": "幾 jī → ki。片假名取上部，四横拉直。"
   },
   {
    "id": "kana-008",
@@ -63,7 +84,10 @@
    "romaji": "ku",
    "hira": "く",
    "kata": "ク",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "久",
+   "srcKata": "久",
+   "hook": "久 jiǔ → ku。取左侧一撇一折。"
   },
   {
    "id": "kana-009",
@@ -71,7 +95,10 @@
    "romaji": "ke",
    "hira": "け",
    "kata": "ケ",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "計",
+   "srcKata": "介",
+   "hook": "計 jì → ke。片假名来自「介」的上半。"
   },
   {
    "id": "kana-010",
@@ -79,7 +106,10 @@
    "romaji": "ko",
    "hira": "こ",
    "kata": "コ",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "己",
+   "srcKata": "己",
+   "hook": "己 jǐ → ko。取「己」的上下两横，最简单的假名之一。"
   },
   {
    "id": "kana-011",
@@ -87,7 +117,10 @@
    "romaji": "sa",
    "hira": "さ",
    "kata": "サ",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "左",
+   "srcKata": "散",
+   "hook": "左 zuǒ → sa（z 与 s 同组）。片假名取「散」的左上。"
   },
   {
    "id": "kana-012",
@@ -95,7 +128,10 @@
    "romaji": "shi",
    "hira": "し",
    "kata": "シ",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "之",
+   "srcKata": "之",
+   "hook": "之 zhī → shi。一笔拉长；片假名 シ 是「之」的三点变形。"
   },
   {
    "id": "kana-013",
@@ -103,7 +139,10 @@
    "romaji": "su",
    "hira": "す",
    "kata": "ス",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "寸",
+   "srcKata": "須",
+   "hook": "寸 cùn → su。一横一钩加打圈。"
   },
   {
    "id": "kana-014",
@@ -111,7 +150,10 @@
    "romaji": "se",
    "hira": "せ",
    "kata": "セ",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "世",
+   "srcKata": "世",
+   "hook": "世 shì → se。片假名几乎就是「世」的简写。"
   },
   {
    "id": "kana-015",
@@ -119,7 +161,10 @@
    "romaji": "so",
    "hira": "そ",
    "kata": "ソ",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "曾",
+   "srcKata": "曽",
+   "hook": "曾 zēng → so。片假名取「曽」上部的两点。"
   },
   {
    "id": "kana-016",
@@ -127,7 +172,10 @@
    "romaji": "ta",
    "hira": "た",
    "kata": "タ",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "太",
+   "srcKata": "多",
+   "hook": "太 tài → ta。「大」的撇和横还在。片假名 タ 是「多」的上半。"
   },
   {
    "id": "kana-017",
@@ -135,7 +183,10 @@
    "romaji": "chi",
    "hira": "ち",
    "kata": "チ",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "知",
+   "srcKata": "千",
+   "hook": "知 zhī → chi。片假名 チ 就是「千」，几乎没变形。"
   },
   {
    "id": "kana-018",
@@ -143,7 +194,10 @@
    "romaji": "tsu",
    "hira": "つ",
    "kata": "ツ",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "川",
+   "srcKata": "川",
+   "hook": "川 chuān → tsu。横过来写就是三道水；片假名 ツ 是三点。"
   },
   {
    "id": "kana-019",
@@ -151,7 +205,10 @@
    "romaji": "te",
    "hira": "て",
    "kata": "テ",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "天",
+   "srcKata": "天",
+   "hook": "天 tiān → te。取上面两横。"
   },
   {
    "id": "kana-020",
@@ -159,7 +216,10 @@
    "romaji": "to",
    "hira": "と",
    "kata": "ト",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "止",
+   "srcKata": "止",
+   "hook": "止 zhǐ → to。片假名 ト 是「止」的左上角。"
   },
   {
    "id": "kana-021",
@@ -167,7 +227,10 @@
    "romaji": "na",
    "hira": "な",
    "kata": "ナ",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "奈",
+   "srcKata": "奈",
+   "hook": "奈 nài → na。片假名 ナ 是「奈」的上半。"
   },
   {
    "id": "kana-022",
@@ -175,7 +238,10 @@
    "romaji": "ni",
    "hira": "に",
    "kata": "ニ",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "仁",
+   "srcKata": "二",
+   "hook": "仁 rén → ni。片假名 ニ 就是「二」——两横，最好记的假名。"
   },
   {
    "id": "kana-023",
@@ -183,7 +249,10 @@
    "romaji": "nu",
    "hira": "ぬ",
    "kata": "ヌ",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "奴",
+   "srcKata": "奴",
+   "hook": "奴 nú → nu。片假名 ヌ 是「奴」的右半「又」。"
   },
   {
    "id": "kana-024",
@@ -191,7 +260,10 @@
    "romaji": "ne",
    "hira": "ね",
    "kata": "ネ",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "祢",
+   "srcKata": "祢",
+   "hook": "祢 nǐ → ne。"
   },
   {
    "id": "kana-025",
@@ -199,7 +271,10 @@
    "romaji": "no",
    "hira": "の",
    "kata": "ノ",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "乃",
+   "srcKata": "乃",
+   "hook": "乃 nǎi → no。一撇一折，就是「乃」的主笔。"
   },
   {
    "id": "kana-026",
@@ -207,7 +282,10 @@
    "romaji": "ha",
    "hira": "は",
    "kata": "ハ",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "波",
+   "srcKata": "八",
+   "hook": "波 bō → ha。ha 行古读近 p/f，所以对应汉语的 b。片假名 ハ 就是「八」。"
   },
   {
    "id": "kana-027",
@@ -215,7 +293,10 @@
    "romaji": "hi",
    "hira": "ひ",
    "kata": "ヒ",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "比",
+   "srcKata": "比",
+   "hook": "比 bǐ → hi。片假名 ヒ 是「比」的右半。"
   },
   {
    "id": "kana-028",
@@ -223,7 +304,10 @@
    "romaji": "fu",
    "hira": "ふ",
    "kata": "フ",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "不",
+   "srcKata": "不",
+   "hook": "不 bù → fu。b 和 f 都是唇音。片假名 フ 是「不」的上部。"
   },
   {
    "id": "kana-029",
@@ -231,7 +315,10 @@
    "romaji": "he",
    "hira": "へ",
    "kata": "ヘ",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "部",
+   "srcKata": "部",
+   "hook": "部 bù → he。片假名取「部」右下的一角。"
   },
   {
    "id": "kana-030",
@@ -239,7 +326,10 @@
    "romaji": "ho",
    "hira": "ほ",
    "kata": "ホ",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "保",
+   "srcKata": "保",
+   "hook": "保 bǎo → ho。片假名 ホ 是「保」右下的「木」。"
   },
   {
    "id": "kana-031",
@@ -247,7 +337,10 @@
    "romaji": "ma",
    "hira": "ま",
    "kata": "マ",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "末",
+   "srcKata": "万",
+   "hook": "末 mò → ma。片假名 マ 来自「万」。"
   },
   {
    "id": "kana-032",
@@ -255,7 +348,10 @@
    "romaji": "mi",
    "hira": "み",
    "kata": "ミ",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "美",
+   "srcKata": "三",
+   "hook": "美 měi → mi。片假名 ミ 就是「三」——三笔，和 ニ（二）成对记。"
   },
   {
    "id": "kana-033",
@@ -263,7 +359,10 @@
    "romaji": "mu",
    "hira": "む",
    "kata": "ム",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "武",
+   "srcKata": "牟",
+   "hook": "武 wǔ → mu。片假名 ム 是「牟」的上半。"
   },
   {
    "id": "kana-034",
@@ -271,7 +370,10 @@
    "romaji": "me",
    "hira": "め",
    "kata": "メ",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "女",
+   "srcKata": "女",
+   "hook": "女 nǚ → me。字形就是「女」交叉的两笔，片假名 メ 更明显。"
   },
   {
    "id": "kana-035",
@@ -279,7 +381,10 @@
    "romaji": "mo",
    "hira": "も",
    "kata": "モ",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "毛",
+   "srcKata": "毛",
+   "hook": "毛 máo → mo。一竖两横，和「毛」几乎一样。"
   },
   {
    "id": "kana-036",
@@ -287,7 +392,10 @@
    "romaji": "ya",
    "hira": "や",
    "kata": "ヤ",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "也",
+   "srcKata": "也",
+   "hook": "也 yě → ya。片假名 ヤ 是「也」的简化。"
   },
   {
    "id": "kana-037",
@@ -295,7 +403,10 @@
    "romaji": "yu",
    "hira": "ゆ",
    "kata": "ユ",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "由",
+   "srcKata": "由",
+   "hook": "由 yóu → yu。片假名 ユ 是「由」的下半。"
   },
   {
    "id": "kana-038",
@@ -303,7 +414,10 @@
    "romaji": "yo",
    "hira": "よ",
    "kata": "ヨ",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "与",
+   "srcKata": "与",
+   "hook": "与 yǔ → yo。片假名 ヨ 是「与」的右半。"
   },
   {
    "id": "kana-039",
@@ -311,7 +425,10 @@
    "romaji": "ra",
    "hira": "ら",
    "kata": "ラ",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "良",
+   "srcKata": "良",
+   "hook": "良 liáng → ra。日语 r 发音接近汉语 l，整行都能这样对。"
   },
   {
    "id": "kana-040",
@@ -319,7 +436,10 @@
    "romaji": "ri",
    "hira": "り",
    "kata": "リ",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "利",
+   "srcKata": "利",
+   "hook": "利 lì → ri。片假名 リ 就是「利」的右半「刂」。"
   },
   {
    "id": "kana-041",
@@ -327,7 +447,10 @@
    "romaji": "ru",
    "hira": "る",
    "kata": "ル",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "留",
+   "srcKata": "流",
+   "hook": "留 liú → ru。片假名 ル 取「流」的右下。"
   },
   {
    "id": "kana-042",
@@ -335,7 +458,10 @@
    "romaji": "re",
    "hira": "れ",
    "kata": "レ",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "礼",
+   "srcKata": "礼",
+   "hook": "礼 lǐ → re。"
   },
   {
    "id": "kana-043",
@@ -343,7 +469,10 @@
    "romaji": "ro",
    "hira": "ろ",
    "kata": "ロ",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "呂",
+   "srcKata": "呂",
+   "hook": "呂 lǚ → ro。两个「口」简化成一个方框。"
   },
   {
    "id": "kana-044",
@@ -351,7 +480,10 @@
    "romaji": "wa",
    "hira": "わ",
    "kata": "ワ",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "和",
+   "srcKata": "和",
+   "hook": "和 hé → wa。片假名 ワ 取「和」右边的「口」变形。"
   },
   {
    "id": "kana-045",
@@ -359,7 +491,10 @@
    "romaji": "wo",
    "hira": "を",
    "kata": "ヲ",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "遠",
+   "srcKata": "乎",
+   "hook": "遠 yuǎn → wo。作助词时读 o（这是最容易读错的一个）。"
   },
   {
    "id": "kana-046",
@@ -367,7 +502,10 @@
    "romaji": "n",
    "hira": "ん",
    "kata": "ン",
-   "tag": "seion"
+   "tag": "seion",
+   "srcHira": "无",
+   "srcKata": "爾",
+   "hook": "无 wú → n，都是鼻音收尾。"
   },
   {
    "id": "kana-047",
@@ -836,6 +974,21 @@
  ],
  "rules": [
   {
+   "id": "rule-000",
+   "title": "假名是汉字变来的（最省力的记忆法）",
+   "body": "平假名＝汉字草书的简化，片假名＝汉字楷书取部件。这是史实，不是编的联想。\n关键在于：多数假名的声母和源字的汉语声母对得上 ——\nか←加 jiā、き←幾 jī、ま←末 mò、も←毛 máo、ら←良 liáng、り←利 lì。\n片假名更直白：ニ←二（两横）、ミ←三（三笔）、ハ←八、エ←江的「工」、リ←利的「刂」。\n每张假名卡的背面都有它的字源和对应说明，看几遍比抄一百遍有用。"
+  },
+  {
+   "id": "rule-009",
+   "title": "浊音/半浊音怎么派生",
+   "body": "不用单独背 25 个浊音。规则只有两条：\n· 清音右上加两点「゛」→ 浊音：か→が(ka→ga)、さ→ざ、た→だ、は→ば\n· は行右上加小圈「゜」→ 半浊音：は→ぱ(ha→pa)\n发音上就是把清辅音变成对应的浊辅音（k→g、s→z、t→d、h→b）。\n只有は行特殊，因为它同时能变 b 和 p —— 这正是它古音接近 p/f 的证据。"
+  },
+  {
+   "id": "rule-010",
+   "title": "拗音怎么派生",
+   "body": "不用单独背 33 个拗音。规则只有一条：\ni 段假名（き し ち に ひ み り ぎ じ び ぴ）+ 小写的 ゃ/ゅ/ょ，拼成一个音节。\nき+ゃ = きゃ(kya)，し+ゅ = しゅ(shu)，ち+ょ = ちょ(cho)。\n注意罗马音写法：sh/ch/j 后面不写 y —— しゃ=sha 不是 shya，ちゃ=cha，じゃ=ja。\n小写的 ゃゅょ 必须写小，写成大的 や 就是两个独立音节（きや ki-ya ≠ きゃ kya）。"
+  },
+  {
    "id": "rule-001",
    "title": "促音 っ",
    "body": "小写的 っ / ッ 不发音，而是停顿一拍，等于把下一个辅音加倍。\nきって kitte（邮票）· がっこう gakkou（学校）· ちょっと chotto（稍微）"
@@ -874,6 +1027,41 @@
    "id": "rule-008",
    "title": "し/ち/つ/ふ 的送气",
    "body": "し=shi 不是 si；ち=chi 不是 ti；つ=tsu 舌尖抵上齿；\nふ=fu 是双唇轻擦，不是英语的 f（不用上齿咬下唇）。"
+  },
+  {
+   "id": "on-001",
+   "title": "音读规律①：汉语 -n 尾 → ん",
+   "body": "汉语以 -n 收尾的字，音读几乎都以 ん 结尾。\n间 jiān → かん(kan)　先 xiān → せん(sen)　本 běn → ほん(hon)\n本 běn→ほん、時間 shíjiān→じかん、先生 xiānshēng→せんせい\n这条规律覆盖极广，遇到带 -n 的汉字先往 ん 猜。"
+  },
+  {
+   "id": "on-002",
+   "title": "音读规律②：汉语 -ng 尾 → 长音 う / い",
+   "body": "汉语以 -ng 收尾的字，音读变成长音（う 或 い 结尾）。\n生 shēng → せい(sei)　東 dōng → とう(tou)　場 chǎng → じょう(jou)\n学生 xuéshēng→がくせい、東京 dōngjīng→とうきょう\n对照记：-n 收成 ん（短），-ng 拉成长音。"
+  },
+  {
+   "id": "on-003",
+   "title": "音读规律③：入声字 → く / つ / ち 或促音",
+   "body": "古汉语的入声字（普通话里已消失，粤语还保留 -p/-t/-k 尾），\n音读会多出一个 く/つ/ち，或在复合词里变成促音っ。\n学 xué(古 hak) → がく(gaku)　一 yī(古 it) → いち(ichi)　日 rì(古 nit) → にち(nichi)\n学校 → がっこう（がく+こう，く 变促音）\n判据：懂粤语的话，凡是粤语带 -p/-t/-k 尾的字都属于这一类。"
+  },
+  {
+   "id": "on-004",
+   "title": "音读规律④：汉语 j/q/x → 日语 k/g 行",
+   "body": "普通话的 j/q/x 是从古汉语的 k/g/h 声母颚化来的，日语保留了古音。\n幾 jī → き(ki)　加 jiā → か(ka)　間 jiān → かん(kan)　金 jīn → きん(kin)\n所以看到 j/q/x 开头的字，音读往 k/g 猜。"
+  },
+  {
+   "id": "on-005",
+   "title": "音读规律⑤：汉语 zh/ch/sh → 日语 s/t 行",
+   "body": "知 zhī → ち(chi)　車 chē → しゃ(sha)　時 shí → じ(ji)　書 shū → しょ(sho)\n電車 diànchē → でんしゃ(densha)　時間 shíjiān → じかん(jikan)\n配合规律①②，「電車」= 电(diàn→でん) + 车(chē→しゃ) 可以直接推出来。"
+  },
+  {
+   "id": "on-006",
+   "title": "音读 vs 训读：为什么有的词能推、有的不能",
+   "body": "音读＝汉语借词的读音，和汉语有系统对应，可以用上面 5 条规律推。\n训读＝日语本土词硬套汉字，和汉语毫无关系，只能靠例句和高频接触。\n　音读：時間 じかん、電車 でんしゃ、学校 がっこう、音楽 おんがく\n　训读：水 みず、山 やま、手 て、道 みち、店 みせ\n判据：两个以上汉字组成的词多为音读；单个汉字的日常名词多为训读。\n看到训读词不要浪费时间找汉语线索，直接走例句。"
+  },
+  {
+   "id": "on-007",
+   "title": "词族：记一个带出一串",
+   "body": "训读词没有汉语线索，但内部有同源关系，按词族记比逐个背省力得多。\n　見る miru(看) → 見せる miseru(展示) → 店 みせ(展示商品的地方)\n　歌う utau(唱) → 歌 うた(歌)\n　話す hanasu(说) → 話 はなし(话)\n　くるくる(转啊转) → 車 くるま(车)\n动词连用形变名词是日语的高产构词法，遇到新词先想它的动词亲戚。"
   }
  ]
 }

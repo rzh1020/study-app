@@ -23,23 +23,25 @@ jobs:
 
       # 数据是脚本生成的，CI 里重新生成一遍并和仓库里的比对：
       # 防止有人手改了 data/*.json 而没同步生成器（罗马音就靠生成器保证正确）
-      - name: 数据生成器自检
+      # kana.json 由自包含的生成器产出，可以在 CI 里漂移比对。
+      # vocab.json 由 tools/build_vocab.py 从开放数据集构建，需要 .data-src/
+      # （约 35MB，不入库），所以 CI 只校验结构不做漂移比对。
+      - name: 假名生成器漂移检查
         run: |
           node tools/gen_kana.mjs
-          node tools/gen_vocab.mjs
-          if ! git diff --quiet -- data/kana.json data/vocab.json; then
-            echo "::error::data/kana.json 或 data/vocab.json 与生成器输出不一致。"
-            echo "如果是有意手改，请改生成器里的表格而不是改产物。差异："
-            git --no-pager diff --stat -- data/kana.json data/vocab.json
+          if ! git diff --quiet -- data/kana.json; then
+            echo "::error::data/kana.json 与生成器输出不一致。"
+            echo "如果是有意手改，请改 tools/gen_kana.mjs 或 tools/kana_hooks.mjs 而不是改产物。"
+            git --no-pager diff --stat -- data/kana.json
             exit 1
           fi
-          echo "数据与生成器一致"
+          echo "假名数据与生成器一致"
 
       - name: JSON 合法性与结构
         run: |
           node -e "
           const fs=require('fs');
-          const expect={kana:{cards:104,rules:8},vocab:{vocab:185},grammar:{grammar:42},theory:{theory:45}};
+          const expect={kana:{cards:104,rules:18},vocab:{vocab:2000},grammar:{grammar:42},theory:{theory:45}};
           let bad=0;
           for(const [f,arrs] of Object.entries(expect)){
             const j=JSON.parse(fs.readFileSync('data/'+f+'.json','utf8'));
@@ -104,7 +106,7 @@ jobs:
         run: |
           set -e
           L=$(unzip -l android/build/study-hub.apk)
-          for f in assets/index.html assets/js/app.js assets/js/native.js \
+          for f in assets/index.html assets/js/app.js assets/js/native.js assets/js/ear-levels.js \
                    assets/data/kana.json assets/data/vocab.json assets/data/plan.json \
                    classes.dex AndroidManifest.xml; do
             echo "$L" | grep -q "$f" || { echo "::error::APK 缺少 $f"; exit 1; }

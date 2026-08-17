@@ -122,10 +122,10 @@ const seeded = await page.evaluate(async () => {
   const s = await deckStats();
   return { total: await db.count('cards'), decks: s };
 });
-ok('卡片已种入本机数据库', seeded.total >= 670, `${seeded.total} 张`);
+ok('卡片已种入本机数据库', seeded.total >= 4000, `${seeded.total} 张`);
 ok('平假名 104', seeded.decks.kana_hira.total === 104, String(seeded.decks.kana_hira.total));
 ok('片假名 104', seeded.decks.kana_kata.total === 104, String(seeded.decks.kana_kata.total));
-ok('词汇 185', seeded.decks.vocab_jp2cn.total === 185, String(seeded.decks.vocab_jp2cn.total));
+ok('词汇 2000', seeded.decks.vocab_jp2cn.total === 2000, String(seeded.decks.vocab_jp2cn.total));
 ok('语法 42', seeded.decks.grammar.total === 42, String(seeded.decks.grammar.total));
 ok('声乐科普 45', seeded.decks.theory.total === 45, String(seeded.decks.theory.total));
 
@@ -159,17 +159,24 @@ const revCount = await page.evaluate(async () => {
 ok('复习记录写入本机', revCount >= 4, `${revCount} 条`);
 
 console.log('\n=== 练耳（Web Audio 无手势播放）===');
-await goto('#/ear/degree');
+await goto('#/ear/highlow');
 await sleep(1000);
 const opts = await page.$$('#opts button');
-ok('出题并渲染选项', opts.length >= 7, `${opts.length}`);
+ok('出题并渲染选项', opts.length >= 2, `${opts.length}`);
 const audioState = await page.evaluate(async () => {
   const { audioCtx } = await import('./js/audio.js');
   return audioCtx().state;
 });
 ok('AudioContext 处于 running（未被手势策略挂起）', audioState === 'running', audioState);
-if (opts.length) { await opts[0].click(); await sleep(700); }
-ok('作答有反馈', /对|错/.test(await page.$eval('#fb', (e) => e.innerText).catch(() => '')));
+// 首次进某一级会自动开熟悉模式（不计分），关掉它才能测计分路径
+if (await page.$eval('#cbLearn', (e) => e.checked).catch(() => false)) {
+  await page.click('#cbLearn');
+  await sleep(800);
+}
+const optsScored = await page.$$('#opts button');
+if (optsScored.length) { await optsScored[0].click(); await sleep(800); }
+ok('作答后计分并给出解释',
+  /✓ 对|✗ 错/.test(await page.$eval('#fb', (e) => e.innerText).catch(() => '')));
 await shot('03-ear');
 
 console.log('\n=== 麦克风：真机实测取数 ===');
@@ -261,7 +268,7 @@ const exportPath = await page.evaluate(async () => {
   return { isNative, cards: d.cards.length, reviews: d.reviews.length, bytes: JSON.stringify(d).length };
 });
 ok('native.js 识别出原生环境', exportPath.isNative === true);
-ok('导出数据完整', exportPath.cards >= 670 && exportPath.reviews >= 4, JSON.stringify(exportPath));
+ok('导出数据完整', exportPath.cards >= 4000 && exportPath.reviews >= 4, JSON.stringify(exportPath));
 console.log(`  INFO  备份体积 ${(exportPath.bytes / 1024).toFixed(0)} KB`);
 
 console.log('\n=== 无 Service Worker 报错（APK 里应跳过注册）===');

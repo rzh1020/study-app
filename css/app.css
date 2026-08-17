@@ -279,3 +279,19 @@ a { color: var(--acc); }
   #view { padding-top: 8px; }
   .card { padding: 10px; margin-bottom: 8px; }
 }
+
+/* 记忆钩子。音读/训读用不同颜色区分，因为两类的记忆策略不同：
+   音读能从汉语推出读音，训读只能靠词族和例句。 */
+.hook {
+  margin-top: 10px; padding: 9px 11px; border-radius: 10px;
+  background: var(--bg3); border: 1px solid var(--line); text-align: left;
+}
+.hook.on { border-color: rgba(62,207,142,.45); background: rgba(62,207,142,.08); }
+.hook.kun { border-color: rgba(242,178,62,.4); background: rgba(242,178,62,.07); }
+.hook-tag {
+  display: inline-block; font-size: 10.5px; padding: 1px 7px; border-radius: 999px;
+  background: var(--line); color: var(--fg2); margin-bottom: 5px;
+}
+.hook.on .hook-tag { background: rgba(62,207,142,.22); color: var(--ok); }
+.hook.kun .hook-tag { background: rgba(242,178,62,.22); color: var(--warn); }
+.hook-body { font-size: 13px; color: var(--fg2); line-height: 1.5; white-space: pre-wrap; }

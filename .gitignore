@@ -25,3 +25,4 @@ study-backup-*.json
 # 临时
 /tmp/
 *.log
+.data-src/
