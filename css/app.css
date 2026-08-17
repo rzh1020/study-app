@@ -295,3 +295,137 @@ a { color: var(--acc); }
 .hook.on .hook-tag { background: rgba(62,207,142,.22); color: var(--ok); }
 .hook.kun .hook-tag { background: rgba(242,178,62,.22); color: var(--warn); }
 .hook-body { font-size: 13px; color: var(--fg2); line-height: 1.5; white-space: pre-wrap; }
+
+/* ---------- 12 周计划页 ----------
+   信息层级：顶部进度头 → 当前周展开 → 其余周折叠成一行。
+   之前 12 张大卡片每张塞五段文字，信息密度过高看不下去。 */
+.plan-hero-w { font-size: 30px; font-weight: 700; line-height: 1.1; }
+.plan-hero-w span { font-size: 14px; font-weight: 400; color: var(--fg2); }
+.plan-hero-n { font-size: 26px; font-weight: 700; line-height: 1.1; color: var(--ok); }
+.plan-dots { display: flex; gap: 3px; margin-top: 10px; }
+.plan-dots i { flex: 1; height: 4px; border-radius: 2px; background: var(--bg3); }
+.plan-dots i.ok { background: var(--ok); }
+.plan-dots i.cur { background: var(--acc); }
+
+.plan-week {
+  background: var(--bg2); border: 1px solid var(--line);
+  border-radius: 14px; margin-bottom: 8px; overflow: hidden;
+}
+.plan-week.cur { border-color: var(--acc); }
+.plan-week.done { opacity: .8; }
+.plan-week > summary {
+  display: flex; align-items: center; gap: 11px;
+  padding: 12px 14px; cursor: pointer; list-style: none;
+}
+.plan-week > summary::-webkit-details-marker { display: none; }
+.plan-wn {
+  width: 30px; height: 30px; border-radius: 9px; flex: none;
+  display: grid; place-items: center;
+  background: var(--bg3); color: var(--fg2);
+  font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums;
+}
+.plan-week.cur .plan-wn { background: var(--acc); color: #fff; }
+.plan-week.done .plan-wn { background: rgba(62,207,142,.18); color: var(--ok); }
+.plan-sum { flex: 1; min-width: 0; }
+.plan-sum-t { display: block; font-size: 14.5px; font-weight: 600; }
+.plan-sum-b {
+  display: block; font-size: 12px; color: var(--fg3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.plan-chev { color: var(--fg3); transition: transform .15s; flex: none; }
+.plan-week[open] .plan-chev { transform: rotate(90deg); }
+.plan-week[open] > summary { border-bottom: 1px solid var(--line); }
+.plan-body { padding: 12px 14px 14px; }
+
+.plan-block { border-left: 3px solid var(--bc); padding-left: 11px; margin-bottom: 13px; }
+.plan-block:last-child { margin-bottom: 0; }
+.plan-block-hd { font-size: 14.5px; font-weight: 600; margin-bottom: 3px; }
+.plan-block-tag {
+  display: inline-block; font-size: 10.5px; font-weight: 500;
+  padding: 1px 7px; border-radius: 999px; margin-right: 6px;
+  background: color-mix(in srgb, var(--bc) 20%, transparent); color: var(--bc);
+}
+.plan-block-do { font-size: 13px; color: var(--fg2); line-height: 1.55; white-space: pre-line; }
+.plan-block-goal { font-size: 12.5px; color: var(--fg3); margin-top: 5px; }
+.plan-block-goal span {
+  color: var(--bc); font-weight: 600; margin-right: 5px;
+}
+
+.plan-gate {
+  margin-top: 14px; padding: 11px 12px; border-radius: 10px;
+  background: rgba(242,178,62,.07); border: 1px solid rgba(242,178,62,.32);
+}
+.plan-gate-hd { font-size: 12px; font-weight: 600; color: var(--warn); margin-bottom: 6px; }
+.plan-gate-item {
+  font-size: 13px; color: var(--fg2); padding: 3px 0 3px 18px; position: relative; line-height: 1.5;
+}
+.plan-gate-item::before {
+  content: ''; position: absolute; left: 0; top: 8px;
+  width: 10px; height: 10px; border-radius: 3px;
+  border: 1.5px solid rgba(242,178,62,.65);
+}
+.plan-check {
+  display: flex; align-items: center; gap: 8px; margin: 14px 0 0;
+  padding-top: 12px; border-top: 1px solid var(--line); font-size: 14px;
+}
+.plan-check input { width: auto; }
+
+/* ---------- 翻译页 ---------- */
+.tr-dir { display: flex; align-items: center; gap: 8px; padding: 10px 12px; }
+.tr-side {
+  flex: 1; min-height: 42px; font-size: 15px; font-weight: 600;
+  background: var(--bg3); border: 1px solid var(--line); border-radius: 10px;
+  color: var(--fg); pointer-events: none;
+}
+.tr-swap { width: 44px; min-height: 42px; flex: none; font-size: 18px; }
+
+.tr-mic {
+  width: 100%; min-height: 62px; border-radius: 14px;
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  background: var(--bg3); border: 1px solid var(--line); color: var(--fg);
+  font-size: 15px; margin-bottom: 4px;
+}
+.tr-mic.on { background: rgba(242,88,91,.16); border-color: var(--bad); }
+.tr-mic-ic { font-size: 22px; }
+.tr-warn {
+  padding: 9px 11px; border-radius: 10px; margin-bottom: 10px;
+  background: rgba(242,178,62,.08); border: 1px solid rgba(242,178,62,.35);
+}
+.tr-warn b { color: var(--warn); font-size: 13.5px; }
+
+.tr-main { font-size: 27px; font-weight: 600; line-height: 1.4; word-break: break-word; }
+.tr-kana { font-size: 16px; color: var(--fg2); margin-top: 4px; }
+.tr-romaji { font-size: 13px; color: var(--fg3); margin-top: 2px; font-family: ui-monospace, Menlo, monospace; }
+.tr-note {
+  font-size: 12.5px; line-height: 1.5; margin-top: 10px;
+  padding: 8px 10px; border-radius: 9px; background: var(--bg3); color: var(--fg2);
+}
+.tr-note.ok { background: rgba(62,207,142,.1); color: var(--ok); }
+.tr-note.warn { background: rgba(242,178,62,.1); color: var(--warn); }
+.tr-note.bad { background: rgba(242,88,91,.1); color: var(--bad); }
+
+.tr-tokens { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.tr-tok {
+  display: inline-flex; flex-direction: column; align-items: center;
+  padding: 4px 8px; border-radius: 8px; background: var(--bg3); border: 1px solid var(--line);
+}
+.tr-tok b { font-size: 14px; font-weight: 600; }
+.tr-tok i { font-size: 10px; font-style: normal; color: var(--fg3); }
+.tr-tok.miss { border-color: rgba(242,88,91,.4); }
+.tr-tok.miss b { color: var(--bad); }
+
+.tr-cats { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 6px; }
+.tr-cat {
+  flex: none; padding: 6px 12px; min-height: 32px; font-size: 13px; border-radius: 999px;
+  background: var(--bg3); border: 1px solid var(--line); color: var(--fg2);
+}
+.tr-cat.on { background: var(--acc); border-color: var(--acc); color: #fff; }
+.tr-ph {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 0; border-bottom: 1px solid var(--line); cursor: pointer;
+}
+.tr-ph:last-child { border-bottom: 0; }
+.tr-ph-cn { font-size: 13px; color: var(--fg3); }
+.tr-ph-jp { font-size: 15.5px; font-weight: 500; margin-top: 1px; }
+.tr-ph-rm { font-size: 11px; color: var(--fg3); font-family: ui-monospace, Menlo, monospace; }
+.tr-ph-play { font-size: 17px; color: var(--acc); flex: none; }

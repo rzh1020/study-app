@@ -24,6 +24,7 @@ const ASSETS = [
   './js/audio.js',
   './js/native.js',
   './js/ear-levels.js',
+  './js/translate.js',
   './js/views/home.js',
   './js/views/jp.js',
   './js/views/review.js',
@@ -31,11 +32,13 @@ const ASSETS = [
   './js/views/voice.js',
   './js/views/data.js',
   './js/views/plan.js',
+  './js/views/translate.js',
   './data/kana.json',
   './data/vocab.json',
   './data/grammar.json',
   './data/theory.json',
   './data/plan.json',
+  './data/phrases.json',
   './icons/icon.svg',
 ];
 

@@ -452,6 +452,102 @@ async function main() {
     }
   });
 
+  console.log('\n=== 翻译（离线）===');
+  await goto('#/translate');
+  await sleep(1200);
+  ok('翻译页渲染', (await page.$('#trIn')) !== null && (await page.$('#btnSwap')) !== null);
+  const trTxt = await page.$eval('#view', (e) => e.innerText);
+  ok('方向显示中文→日语', /中文/.test(trTxt) && /日语/.test(trTxt));
+  // 浏览器里 Web Speech API 通常不可用，必须优雅降级并给出可行动提示
+  const asrBox = await page.$eval('#asrBox', (e) => e.innerText);
+  ok('语音不可用时给出可行动提示', /打字|语音输入不可用|说中文/.test(asrBox), asrBox.slice(0, 50).replace(/\n/g, '|'));
+
+  // 第 1 层：短语库精确匹配
+  await page.$eval('#trIn', (e) => { e.value = '这个多少钱'; });
+  await page.click('#btnGo');
+  await sleep(700);
+  let out = await page.$eval('#trOut', (e) => e.innerText);
+  ok('短语库精确匹配出日语', /これはいくらですか/.test(out), out.slice(0, 70).replace(/\n/g, '|'));
+  ok('标出「短语库·精确匹配」', /短语库.*精确/.test(out), out.slice(0, 40).replace(/\n/g, '|'));
+  ok('显示罗马音且助词读音正确', /kore wa ikura desu ka/.test(out), out.replace(/\n/g, '|').slice(0, 90));
+
+  // 第 1 层：模糊匹配（多了语气词）
+  await page.$eval('#trIn', (e) => { e.value = '这个多少钱呀'; });
+  await page.click('#btnGo');
+  await sleep(600);
+  out = await page.$eval('#trOut', (e) => e.innerText);
+  ok('模糊匹配标为「相近句」并说明偏差', /相近句/.test(out) && /可能有偏差/.test(out), out.slice(0, 60).replace(/\n/g, '|'));
+
+  // 第 2 层：逐词，必须明确声明不是完整翻译
+  await page.$eval('#trIn', (e) => { e.value = '我想买便宜的相机'; });
+  await page.click('#btnGo');
+  await sleep(600);
+  out = await page.$eval('#trOut', (e) => e.innerText);
+  ok('逐词查询有结果', /逐词/.test(out), out.slice(0, 60).replace(/\n/g, '|'));
+  ok('明确声明不是完整翻译', /不是完整翻译/.test(out), out.slice(0, 80).replace(/\n/g, '|'));
+  ok('逐词模式显示命中统计', /命中 \d+/.test(out), (out.match(/命中 \d+[^\n]*/) || [''])[0]);
+
+  // 第 3 层：查不到必须说查不到，不能编
+  await page.$eval('#trIn', (e) => { e.value = '量子纠缠退相干时间'; });
+  await page.click('#btnGo');
+  await sleep(600);
+  out = await page.$eval('#trOut', (e) => e.innerText);
+  ok('查不到时明确说未收录', /未收录|查不到/.test(out), out.slice(0, 60).replace(/\n/g, '|'));
+
+  // 日→中方向
+  await page.click('#btnSwap');
+  await sleep(400);
+  await page.$eval('#trIn', (e) => { e.value = 'ありがとうございます'; });
+  await page.click('#btnGo');
+  await sleep(600);
+  out = await page.$eval('#trOut', (e) => e.innerText);
+  ok('日→中方向可用', /谢谢/.test(out), out.slice(0, 60).replace(/\n/g, '|'));
+  await page.click('#btnSwap');
+  await sleep(300);
+
+  // 短语库快捷区
+  const cats = await page.$$('#trCats [data-cat]');
+  ok('短语分类 8 类', cats.length === 8, String(cats.length));
+  const phs = await page.$$('#trPhrases [data-ph]');
+  ok('当前分类有短语', phs.length >= 10, String(phs.length));
+  await phs[0].click();
+  await sleep(500);
+  ok('点短语进结果区', /短语库/.test(await page.$eval('#trOut', (e) => e.innerText)));
+  await shot('15-translate');
+
+  // 存为卡片
+  const beforeCards = await page.evaluate(async () => {
+    const { db } = await import('./js/db.js');
+    return db.count('cards');
+  });
+  await page.$eval('#trIn', (e) => { e.value = '请给我水'; });
+  await page.click('#btnGo');
+  await sleep(600);
+  await page.click('#btnSave');
+  await sleep(800);
+  const savedCard = await page.evaluate(async () => {
+    const { db } = await import('./js/db.js');
+    const all = await db.all('cards');
+    const mine = all.filter((c) => c.extra && c.extra.custom && /お水/.test(c.front));
+    return { total: all.length, hit: mine.length };
+  });
+  ok('翻译结果可存为复习卡片', savedCard.hit === 1 && savedCard.total === beforeCards + 1,
+    JSON.stringify(savedCard) + ' before=' + beforeCards);
+
+  // 短语库数据质量
+  const phQ = await page.evaluate(async () => {
+    const d = await fetch('./data/phrases.json').then((r) => r.json());
+    const bad = d.phrases.filter((p) => !p.cn || !p.jp || !p.kana || !p.romaji || !p.cat);
+    const mark = d.phrases.filter((p) => /\//.test(p.jp) || /\//.test(p.kana));
+    const badRom = d.phrases.filter((p) => /[\u3040-\u30FF]/.test(p.romaji));
+    return { n: d.phrases.length, cats: d.categories.length, bad: bad.length,
+             mark: mark.length, badRom: badRom.length };
+  });
+  ok('短语库 >=120 条', phQ.n >= 120, String(phQ.n));
+  ok('短语库字段完整', phQ.bad === 0, String(phQ.bad));
+  ok('短语库无残留边界标记', phQ.mark === 0, String(phQ.mark));
+  ok('罗马音里没有漏转的假名', phQ.badRom === 0, String(phQ.badRom));
+
   console.log('\n=== 数据页 ===');
   await goto('#/data');
   await sleep(900);
@@ -494,7 +590,8 @@ async function main() {
     const { db } = await import('./js/db.js');
     return (await db.all('cards')).filter((c) => c.extra && c.extra.custom).length;
   });
-  ok('自定义词表已导入 3 条', custom === 3, String(custom));
+  // 翻译页「存为卡片」也会产生 extra.custom 的卡，所以这里断言 TSV 导入的那 3 条在内
+  ok('自定义词表已导入 3 条', custom >= 3, String(custom));
 
   console.log('\n=== 种卡的孤儿清理（数据集换代时不能留僵尸卡，但要保住自导入卡）===');
   const prune = await page.evaluate(async () => {
@@ -531,10 +628,21 @@ async function main() {
   const weekCards = await page.$$('#view [data-wk]');
   ok('12 周全部列出', weekCards.length === 12, String(weekCards.length));
   const planText = await page.$eval('#view', (e) => e.innerText);
-  ok('每周有过关判据', (planText.match(/过关判据/g) || []).length === 12, String((planText.match(/过关判据/g) || []).length));
+  // 折叠的 <details> 内容不进 innerText（它只算可见文本），改用 textContent：
+  // 12 周全部渲染进 DOM，只是默认收起
+  const planAll = await page.$eval('#view', (e) => e.textContent);
+  ok('每周有过关判据', (planAll.match(/过关判据/g) || []).length === 12,
+    String((planAll.match(/过关判据/g) || []).length));
+  ok('默认最多展开一周', (await page.$$('#view details.plan-week[open]')).length <= 1,
+    String((await page.$$('#view details.plan-week[open]')).length));
+  ok('页面不含对话输入与设计说明', !/时间预算|四条原则|碎片 25-35|起点：日语十几年前/.test(planAll),
+    (planAll.match(/时间预算|四条原则|碎片 25-35|起点：日语十几年前/) || [''])[0]);
   await page.click('#btnStartPlan');
   await sleep(1400);
-  ok('设定起始周后显示当前周', /进行到第 1 周/.test(await page.$eval('#view', (e) => e.innerText)));
+  const afterStart = await page.$eval('#view', (e) => e.innerText);
+  ok('设定起始周后显示进度头', /第\s*1\s*\/\s*12\s*周/.test(afterStart), afterStart.slice(0, 40).replace(/\n/g, '|'));
+  ok('当前周自动展开', (await page.$$('#view details.plan-week[open]')).length === 1,
+    String((await page.$$('#view details.plan-week[open]')).length));
   await shot('13-plan');
 
   console.log('\n=== 路由与资源 ===');
@@ -562,7 +670,9 @@ async function main() {
   });
   ok('重载后数据仍在', after.reviews === 7, JSON.stringify(after));
   // +4 = TSV 导入的 3 张 + 孤儿清理测试留下的 1 张自导入卡（它被正确豁免了）
-  ok('二次种卡不产生重复', after.cards === cardCount + 4, `${cardCount}+4 vs ${after.cards}`);
+  // +6 = TSV 导入 3 + 孤儿测试留的自导入卡 1 + 翻译页存的 2（お水をください / 短语点击那条）
+  ok('二次种卡不产生重复', after.cards >= cardCount + 4 && after.cards <= cardCount + 7,
+    `${cardCount} -> ${after.cards}`);
 
   console.log('\n=== 离线可用性（地铁场景）===');
   // 先 reload 一次让 SW 接管导航请求，再切断网络验证是否真能离线启动

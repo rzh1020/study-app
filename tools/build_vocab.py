@@ -75,6 +75,19 @@ PITCH_CHARS = '⓪①②③④⑤⑥⑦⑧⑨⑩⑪⑫'
 # csv 模块默认单字段上限 128KB，会直接抛 _csv.Error。
 csv.field_size_limit(1 << 24)
 
+# 三路语料近似等权。目标是学「日语」而不是偏某一语域，
+# 所以不给任何一路明显更高的权重。新闻那一路略低一点点，
+# 是因为它的粒度最粗（JMdict 的 nf 是 500 词一档，不是精确排名）。
+W_NEWS, W_SPOKEN, W_SUBS = 0.33, 0.34, 0.33
+# 缺失处理：只在「有收录」的语料上取平均，再按缺失路数加一个温和的惩罚。
+# 一开始把缺失直接记作百分位 1.0，结果「猫」这种基础词只因新闻语料没收录
+# 就被 0.33×1.0 压到两千名外 —— 那不是我们想要的判据。
+# 现在的做法既保持「跨语域都常见的词优先」，又不至于因为一路缺失就判死。
+MISS_PENALTY = 1.0    # 展示用：表示该语料未收录
+MISS_COVER_W = 0.14   # 每缺一路语料附加的惩罚（缺 1 路 ≈ +0.047）
+NF_BAND_SIZE = 500    # JMdict nf01..nf48，每档 500 词
+NF_MAX_BAND = 48      # 覆盖新闻语料约前 24000 个词形
+
 
 def log(*a):
     print(*a, file=sys.stderr, flush=True)
@@ -204,6 +217,53 @@ def parse_jc(path):
     return out
 
 
+def lookup_keys(entry):
+    """词频查询用的键。
+
+    只有本来就写假名的词（且长度>1）才能用假名查。
+    否则 葉/歯/羽/波 都会匹配到助词「は」（9.8 万视频）、
+    手 会匹配到接续助词「て」，单字词被虚高顶到词表最前面。
+    三路语料必须都走这个函数，不能只在其中一路做防护。
+    """
+    return entry['forms'] if entry['forms'] else [k for k in entry['kana'] if len(k) > 1]
+
+
+def to_percentile(ranked_keys):
+    """[按频次降序的键] -> {键: 百分位}（0=最常用，1=最罕见）"""
+    n = len(ranked_keys) or 1
+    return {k: (i + 1) / n for i, k in enumerate(ranked_keys)}
+
+
+def parse_animefreq(path):
+    """animefreq.csv -> {辞书形: 文档频率}。
+
+    用 DictionaryForm（lemma）做键、累加 Files 列（出现在多少个字幕文件里）。
+    跨表层形式累加会轻微高估文档频率（同一文件里多个变形会重复计），
+    但单调性不变；取 max 反而会低估。排序只需单调性，所以累加更合适。
+    过滤掉助词/助动词/符号，避免它们把 lemma 频次抬高。
+    """
+    log('读取 animefreq 词频（18960 个动漫字幕文件）…')
+    skip_pos = ('助詞', '助動詞', '記号', '補助記号', '空白')
+    agg = {}
+    rows = 0
+    with open(path, encoding='utf-8') as f:
+        for row in csv.DictReader(f):
+            rows += 1
+            pos = (row.get('PartOfSpeech') or '').split()
+            if pos and pos[0] in skip_pos:
+                continue
+            key = (row.get('DictionaryForm') or '').strip()
+            if not key:
+                continue
+            try:
+                files = int(row.get('Files') or 0)
+            except ValueError:
+                continue
+            agg[key] = agg.get(key, 0) + files
+    log(f'  原始行 {rows}，聚合后 lemma {len(agg)}')
+    return agg
+
+
 def parse_tubelex(path):
     """word -> (videos, count)。videos = 出现在多少个视频里（文档频率）。"""
     log('读取 tubelex 词频（YouTube 字幕语料）…')
@@ -306,16 +366,18 @@ def stage_of(rank):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--limit', type=int, default=2000)
+    ap.add_argument('--compare', action='store_true', help='对照新旧排序的前 50 名')
     ap.add_argument('--out', default=os.path.join(ROOT, 'data', 'vocab.json'))
     args = ap.parse_args()
 
+    hooks = load_hooks()
     entries = parse_jmdict(os.path.join(SRC, 'JMdict_e.gz'))
     jc = parse_jc(os.path.join(SRC, 'jc.json'))
     freq = parse_tubelex(os.path.join(SRC, 'tubelex.tsv'))
+    subs = parse_animefreq(os.path.join(SRC, 'animefreq.csv'))
     pairs = load_pairs(os.path.join(SRC, 'links.tsv'),
                        os.path.join(SRC, 'jpn.tsv'),
                        os.path.join(SRC, 'cmn.tsv'))
-    hooks = load_hooks()
     romanize = build_romanizer(os.path.join(ROOT, 'data', 'kana.json'))
     # 转写器自检：这几个是最容易出错的形态，错了就别往下走
     for k, want in [('がっこう', 'gakkou'), ('きって', 'kitte'), ('ちょっと', 'chotto'),
@@ -329,8 +391,21 @@ def main():
     sent_idx = sorted(((ja, zh) for ja, zh in pairs.items() if len(ja) <= 32),
                       key=lambda x: len(x[0]))
 
-    # 为每个 JMdict 词条打词频分。词形和假名都试一遍，取最高的文档频率。
-    cands = []
+    # ---- 三路语料合成排序 ----
+    # 先把三个语料各自转成百分位（0=最常用），再取加权算术平均。
+    # 不用调和平均：对「越小越好」的值，调和平均会被最小那一项主导，
+    # 等于又把单语域偏向请回来了，而这次改动正是为了去掉这个偏向。
+    # 算术平均 + 缺失惩罚 1.0，奖励「在三个语域里都常见」的词。
+    tube_pct = to_percentile([k for k, _ in sorted(freq.items(), key=lambda kv: -kv[1][0])])
+    subs_pct = to_percentile([k for k, _ in sorted(subs.items(), key=lambda kv: -kv[1])])
+
+    def nf_pct(nf):
+        if nf >= 99:
+            return MISS_PENALTY
+        mid = (nf - 1) * NF_BAND_SIZE + NF_BAND_SIZE / 2
+        return min(1.0, mid / (NF_BAND_SIZE * NF_MAX_BAND))
+
+    cands, cov = [], {'news': 0, 'spoken': 0, 'subs': 0, 'any': 0}
     for e in entries:
         if not e['forms'] and not e['kana']:
             continue
@@ -338,28 +413,52 @@ def main():
             continue
         if {'arch', 'obs', 'obsc', 'rare'} & set(e['misc']):
             continue
-        # 词频只能按汉字词形查。
-        # 如果拿假名去查，葉/歯/羽/波 都会匹配到助词「は」（9.8 万视频），
-        # 手 会匹配到接续助词「て」—— 单字词会被虚高顶到词表最前面。
-        # 只有本来就写假名的词（ありがとう、こんにちは）才用假名查，
-        # 且排除单字假名（那一定是助词或活用词尾，不是独立词汇）。
-        keys = e['forms'] if e['forms'] else [k for k in e['kana'] if len(k) > 1]
-        best = 0
-        for k in keys:
-            v = freq.get(k)
-            if v and v[0] > best:
-                best = v[0]
-        if best == 0:
+        keys = lookup_keys(e)
+        if not keys:
             continue
-        e['videos'] = best
+        pS = min((tube_pct[k] for k in keys if k in tube_pct), default=None)
+        pB = min((subs_pct[k] for k in keys if k in subs_pct), default=None)
+        pN = nf_pct(e['nf'])
+        hasN = e['nf'] < 99
+        if not hasN and pS is None and pB is None:
+            continue
+        if hasN:
+            cov['news'] += 1
+        if pS is not None:
+            cov['spoken'] += 1
+        if pB is not None:
+            cov['subs'] += 1
+        cov['any'] += 1
+        e['pNews'] = pN
+        e['pSpoken'] = MISS_PENALTY if pS is None else pS
+        e['pSubs'] = MISS_PENALTY if pB is None else pB
+        e['nCorpus'] = int(hasN) + int(pS is not None) + int(pB is not None)
+        parts = []
+        if hasN:
+            parts.append((W_NEWS, pN))
+        if pS is not None:
+            parts.append((W_SPOKEN, pS))
+        if pB is not None:
+            parts.append((W_SUBS, pB))
+        wsum = sum(w for w, _ in parts) or 1.0
+        base = sum(w * v for w, v in parts) / wsum
+        e['score'] = base + MISS_COVER_W * ((3 - e['nCorpus']) / 3)
+        # 手写记忆钩子覆盖的词是按「初学者必需」人工挑的（水/山/猫/犬/寒暄语这类），
+        # 这是课程知识而不是语料统计能给出的信息，所以给一个小幅前提。
+        # 幅度刻意小：只把它们从两千名外拉进射程，不会顶掉真正的高频词。
+        form0 = e['forms'][0] if e['forms'] else e['kana'][0]
+        if form0 in hooks:
+            e['score'] *= 0.55
+            e['hookBoost'] = True
+        # 保留旧排序用的字段，供 --compare 对照
+        e['videos'] = max((freq[k][0] for k in keys if k in freq), default=0)
         cands.append(e)
-    cands.sort(key=lambda e: (-e['videos'], e['nf']))
-    log(f'有词频的候选词条 {len(cands)}')
 
-    # 同一个词形在 JMdict 里常有多个条目（人＝ひと名词 / にん后缀；
-    # これ＝代词 / 感叹词）。词频查的是词形，所以这些条目分数相同，
-    # 排序时的先后是任意的，会选错读音和词性。
-    # 用中日词库给出的读音来消歧：它标的是最常用的那个读音。
+    n = max(cov['any'], 1)
+    log(f"候选词条 {cov['any']}；语料覆盖率 "
+        f"新闻 {cov['news']*100//n}%  口语 {cov['spoken']*100//n}%  字幕 {cov['subs']*100//n}%")
+
+    # 同一词形多个 JMdict 条目（人＝ひと名词/にん后缀）用中日词库的读音消歧
     by_form = {}
     for e in cands:
         form = e['forms'][0] if e['forms'] else e['kana'][0]
@@ -377,10 +476,11 @@ def main():
     picked = []
     for form, group in by_form.items():
         info = jc.get(form)
-        want = info['kana'] if info else ''
-        group.sort(key=lambda e: entry_score(e, want))
+        group.sort(key=lambda e: entry_score(e, info['kana'] if info else ''))
         picked.append(group[0])
-    picked.sort(key=lambda e: (-e['videos'], e['nf']))
+
+    old_order = sorted(picked, key=lambda e: (-e['videos'], e['nf']))
+    picked.sort(key=lambda e: (e['score'], -e['nCorpus'], -e['videos'], e['nf']))
     cands = picked
     log(f'按词形去重并消歧后 {len(cands)}')
 
@@ -425,6 +525,11 @@ def main():
             'vclass': verb_class(e['pos']),
             'pitch': info['pitch'],
             'videos': e['videos'],
+            'score': round(e['score'], 5),
+            'pNews': round(e['pNews'], 4),
+            'pSpoken': round(e['pSpoken'], 4),
+            'pSubs': round(e['pSubs'], 4),
+            'nCorpus': e['nCorpus'],
             'rank': rank,
             'stage': stage_of(rank),
             'exJp': ex_jp, 'exCn': ex_cn,
@@ -444,9 +549,30 @@ def main():
         json.dump({'version': 3, 'vocab': vocab}, f, ensure_ascii=False, separators=(',', ':'))
     log(f'-> {args.out}  {os.path.getsize(args.out)/1e6:.2f} MB')
 
-    log('\n前 12 名：')
-    for v in vocab[:12]:
-        log(f"  #{v['rank']:4d} {v['jp']:8s} {v['kana']:10s} vids={v['videos']:6d} {v['pos']:5s} {v['cn'][:18]}")
+    log('\n合成排名前 20（括号内为各语料百分位，越小越常用，— = 该语料未收录）：')
+    log(f"  {'#':>4} {'词':8s} {'读音':10s} {'分':>6}  {'新闻':>6} {'口语':>6} {'字幕':>6}  释义")
+    for v in vocab[:20]:
+        f = lambda x: '—' if x >= MISS_PENALTY else f'{x:.3f}'
+        log(f"  {v['rank']:4d} {v['jp']:8s} {v['kana']:10s} {v['score']:.4f}  "
+            f"{f(v['pNews']):>6} {f(v['pSpoken']):>6} {f(v['pSubs']):>6}  {v['cn'][:16]}")
+
+    if args.compare:
+        newRank = {(e['forms'][0] if e['forms'] else e['kana'][0]): i + 1 for i, e in enumerate(cands)}
+        oldRank = {(e['forms'][0] if e['forms'] else e['kana'][0]): i + 1 for i, e in enumerate(old_order)}
+        log('\n新旧排序前 50 对照（旧 = 仅用口语语料）：')
+        log(f"  {'位':>3}  {'新排序':10s}{'(旧位)':>8}   {'旧排序':10s}{'(新位)':>8}")
+        for i in range(50):
+            a = cands[i]; b = old_order[i]
+            af = a['forms'][0] if a['forms'] else a['kana'][0]
+            bf = b['forms'][0] if b['forms'] else b['kana'][0]
+            log(f"  {i+1:3d}  {af:10s}{('#'+str(oldRank.get(af,'-'))):>8}   {bf:10s}{('#'+str(newRank.get(bf,'-'))):>8}")
+        movers = sorted(
+            ((k, oldRank[k] - newRank[k], oldRank[k], newRank[k])
+             for k in newRank if k in oldRank and newRank[k] <= 300),
+            key=lambda x: -abs(x[1]))[:12]
+        log('\n排名变化最大的词（只看新排名前300）：')
+        for k, d, o, nn in movers:
+            log(f"  {k:10s} 旧#{o:<6} -> 新#{nn:<6} ({'↑' if d>0 else '↓'}{abs(d)})")
 
 
 if __name__ == '__main__':

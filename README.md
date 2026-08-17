@@ -48,6 +48,7 @@ node android/verify_device.mjs   # 真机验证（需 App 在前台）
 | `data/grammar.json` | 42 个 N5 语法点，含句型、例句、易错提示 | 原创 |
 | `data/theory.json` | 45 张声乐/乐理/记忆原理科普卡 | 原创 |
 | `data/plan.json` | 12 周计划与每周过关判据 | 原创 |
+| `data/phrases.json` | 127 条旅游/日常短语（8 类），带假名与罗马音 | 原创 |
 
 共约 4300 张卡（词汇按「日→中」「中→日」各生成一张）。
 
@@ -64,16 +65,23 @@ python3 tools/build_vocab.py --limit 2000
 | 数据源 | 许可 | 用途 |
 |---|---|---|
 | JMdict (EDRDG) | CC BY-SA 4.0 | 词形、假名读音、词性、动词分类 |
-| tubelex-ja | BSD-3-Clause | **词频排序**（9.9 万 YouTube 字幕，口语域） |
+| tubelex-ja | BSD-3-Clause | 词频·口语（9.9 万 YouTube 字幕） |
+| animefreq | 无 LICENSE（个人记录用途） | 词频·字幕（18960 个动漫字幕，SudachiPy 分析） |
+| JMdict nf 档位 | CC BY-SA 4.0 | 词频·新闻（每日新闻语料前 24000 词形） |
 | Tatoeba | CC BY 2.0 FR | 真实中日对照例句 |
 | Japanese-Chinese-thesaurus | Unlicense | 中文释义 + 声调 |
 
 完整署名见 [NOTICE.md](NOTICE.md)。
 
-**词频为什么用 YouTube 字幕而不是新闻语料**：目标是听懂动漫和日常对话，
-两者词汇分布差别很大 —— 新闻里「委員会」高频，日常对话里几乎不出现。
-取 `videos` 列（一个词出现在多少个视频里）而不是总出现次数，
-因为文档频率更能反映通用性，不会被某一个视频的重复用词带偏。
+**词频用三路语料合成，不偏任何单一语域**：目标是学日语（泛用），
+所以新闻、口语、字幕三路近似等权（0.33/0.34/0.33）。做法是各自算百分位，
+只在「有收录」的语料上取加权平均，再按缺失路数加一个温和惩罚（每缺一路 +0.047）。
+
+不用调和平均：对「越小越好」的值，调和平均会被最小那一项主导，
+等于又把单语域偏向请回来了。缺失惩罚一开始给到 1.0，结果「猫」这种基础词
+只因新闻语料没收录就被压到两千名外 —— 那不是想要的判据，所以改成了温和惩罚。
+另外手写记忆钩子覆盖的词有小幅前提，那批是按「初学者必需」人工挑的
+（水/山/猫/寒暄语这类），属于课程知识而非语料统计能给出的信息。
 
 **词频只能按汉字词形查**，这是踩过的坑：如果拿假名去查，
 葉/歯/羽/波 都会匹配到助词「は」（9.8 万视频），手 会匹配到接续助词「て」，
@@ -211,8 +219,8 @@ APK 方式不受此限（见下）。
 
 ```bash
 npm test                          # 64 项：FSRS 状态机 + 音高检测 + 乐理换算 + 性能
-node tools/e2e.mjs                # 138 项：真 Chrome 端到端，含麦克风链路、离线、练耳解锁、孤儿清理
-node android/verify_device.mjs    # 41 项：真机 APK 内验证（adb + WebView DevTools）
+node tools/e2e.mjs                # 161 项：真 Chrome 端到端，含麦克风链路、离线、练耳解锁、孤儿清理
+node android/verify_device.mjs    # 45 项：真机 APK 内验证（adb + WebView DevTools）
 node tools/check_deploy.mjs       # 各 origin 下麦克风/SW 可用性实测
 ```
 

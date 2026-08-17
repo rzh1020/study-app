@@ -17,6 +17,14 @@
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
+
+    <!-- Android 11+ 的包可见性限制：不声明这两个 intent，
+         SpeechRecognizer.isRecognitionAvailable() 和 TextToSpeech 会看不到系统服务。
+         这不是联网权限，不影响「本应用不联网」这条约束。 -->
+    <queries>
+        <intent><action android:name="android.speech.RecognitionService" /></intent>
+        <intent><action android:name="android.intent.action.TTS_SERVICE" /></intent>
+    </queries>
     <!-- 明确声明支持各种屏幕：这台设备是 Pad 9 Pro（2136x3200），
          锁竖屏会被 letterbox 成中间一条，横屏时两侧全是壁纸。 -->
     <supports-screens

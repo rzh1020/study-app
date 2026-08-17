@@ -101,3 +101,115 @@ if (typeof window !== 'undefined') {
     }
   };
 }
+
+// ==========================================================================
+// 语音识别 / 语音合成桥（翻译功能用）
+//
+// 契约在这里定义，Android 侧按此实现，网页侧按此调用，两边可并行开发。
+// 浏览器环境下自动降级：ASR 用 Web Speech API（Chrome 有，但需联网），
+// TTS 用 speechSynthesis。原生环境优先走系统能力（可离线）。
+// ==========================================================================
+
+/**
+ * 语音识别是否可用。
+ * @returns {{available:boolean, offline:boolean, reason:string}}
+ */
+export function asrStatus() {
+  if (isNative && typeof B.asrAvailable === 'function') {
+    try {
+      const raw = B.asrAvailable();
+      const j = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      return { available: !!j.available, offline: !!j.offline, reason: j.reason || '' };
+    } catch (e) {
+      return { available: false, offline: false, reason: String(e.message || e) };
+    }
+  }
+  const W = window.SpeechRecognition || window.webkitSpeechRecognition;
+  return W
+    ? { available: true, offline: false, reason: '浏览器 Web Speech API（需联网）' }
+    : { available: false, offline: false, reason: '此环境不支持语音识别' };
+}
+
+let _asrHandlers = null;
+
+/**
+ * 开始语音识别。
+ * @param {string} lang BCP-47，如 'zh-CN' / 'ja-JP'
+ * @param {{onPartial?:(t:string)=>void, onResult:(t:string)=>void, onError:(e:string)=>void}} cb
+ * @returns {boolean} 是否成功启动
+ */
+export function asrStart(lang, cb) {
+  _asrHandlers = cb;
+  if (isNative && typeof B.asrStart === 'function') {
+    window.__asrPartial = (t) => _asrHandlers && _asrHandlers.onPartial && _asrHandlers.onPartial(t);
+    window.__asrResult = (t) => { const h = _asrHandlers; _asrHandlers = null; h && h.onResult(t); };
+    window.__asrError = (e) => { const h = _asrHandlers; _asrHandlers = null; h && h.onError(e); };
+    B.asrStart(lang);
+    return true;
+  }
+  const W = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!W) { cb.onError('此环境不支持语音识别'); return false; }
+  const r = new W();
+  r.lang = lang;
+  r.interimResults = true;
+  r.continuous = false;
+  r.onresult = (e) => {
+    let finalTxt = '', partial = '';
+    for (const res of e.results) {
+      if (res.isFinal) finalTxt += res[0].transcript;
+      else partial += res[0].transcript;
+    }
+    if (partial && cb.onPartial) cb.onPartial(partial);
+    if (finalTxt) cb.onResult(finalTxt);
+  };
+  r.onerror = (e) => cb.onError(e.error || '识别失败');
+  r.onend = () => { _asrHandlers = null; };
+  r.start();
+  _asrHandlers = { ...cb, _webRec: r };
+  return true;
+}
+
+export function asrStop() {
+  if (isNative && typeof B.asrStop === 'function') { B.asrStop(); return; }
+  if (_asrHandlers && _asrHandlers._webRec) {
+    try { _asrHandlers._webRec.stop(); } catch { /* 已停 */ }
+  }
+  _asrHandlers = null;
+}
+
+/**
+ * 朗读文本。
+ * @param {string} text
+ * @param {string} lang 'ja-JP' / 'zh-CN'
+ * @returns {boolean} 是否已交付播放（false = 该语言无可用语音）
+ */
+export function speak(text, lang = 'ja-JP') {
+  if (!text) return false;
+  if (isNative && typeof B.ttsSpeak === 'function') {
+    return !!B.ttsSpeak(text, lang);
+  }
+  if (!('speechSynthesis' in window)) return false;
+  const base = lang.split('-')[0];
+  const v = speechSynthesis.getVoices().find((x) => x.lang.toLowerCase().startsWith(base));
+  if (!v) return false;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.voice = v;
+  u.lang = v.lang;
+  u.rate = 0.92;
+  speechSynthesis.speak(u);
+  return true;
+}
+
+/** 某语言是否有可用的合成语音 */
+export function ttsHasVoice(lang = 'ja-JP') {
+  if (isNative && typeof B.ttsHasVoice === 'function') return !!B.ttsHasVoice(lang);
+  if (!('speechSynthesis' in window)) return false;
+  const base = lang.split('-')[0];
+  return speechSynthesis.getVoices().some((x) => x.lang.toLowerCase().startsWith(base));
+}
+
+export function ttsStop() {
+  if (isNative && typeof B.ttsStop === 'function') { B.ttsStop(); return; }
+  if ('speechSynthesis' in window) speechSynthesis.cancel();
+}

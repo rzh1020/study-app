@@ -135,6 +135,14 @@ const homeTxt = await page.$eval('#view', (e) => e.innerText);
 ok('首页渲染', /天连续/.test(homeTxt), homeTxt.slice(0, 40).replace(/\n/g, '|'));
 await shot('01-home');
 
+// 真机的数据库是持久的：跑过几轮验证后当天新卡配额（默认 12/天）就用完了，
+// 队列会空掉，导致「题面出现」误报失败。所以先抬高配额，让测试与历史数据无关。
+await page.evaluate(async () => {
+  const { setConfig, getConfig } = await import('./js/store.js');
+  const cfg = await getConfig();
+  await setConfig({ newPerDay: { ...cfg.newPerDay, kana_hira: 999 } });
+});
+
 console.log('\n=== 日语复习 + 数据落盘 ===');
 await goto('#/review/kana_hira');
 ok('题面出现', (await page.$('#qcard .q-front')) !== null);
@@ -245,8 +253,29 @@ console.log('\n=== 12 周计划（内容从 APK 内 JSON 读取）===');
 await goto('#/plan');
 ok('12 周全部列出', (await page.$$('#view [data-wk]')).length === 12,
   String((await page.$$('#view [data-wk]')).length));
-ok('有过关判据', (((await page.$eval('#view', (e) => e.innerText)).match(/过关判据/g)) || []).length === 12);
+// 折叠的 <details> 内容不进 innerText，改用 textContent 统计
+const planTc = await page.$eval('#view', (e) => e.textContent);
+ok('每周有过关判据', ((planTc.match(/过关判据/g)) || []).length === 12,
+  String(((planTc.match(/过关判据/g)) || []).length));
 await shot('06-plan');
+
+console.log('\n=== 翻译（真机离线）===');
+await goto('#/translate');
+await sleep(1200);
+ok('翻译页渲染', (await page.$('#trIn')) !== null);
+const spx = await page.evaluate(async () => {
+  const { asrStatus, ttsHasVoice } = await import('./js/native.js');
+  return { asr: asrStatus(), ja: ttsHasVoice('ja-JP'), zh: ttsHasVoice('zh-CN') };
+});
+console.log(`  INFO  语音识别 available=${spx.asr.available} offline=${spx.asr.offline} : ${spx.asr.reason}`);
+console.log(`  INFO  TTS 语音包 日语=${spx.ja} 中文=${spx.zh}`);
+ok('原生桥返回了语音识别状态', typeof spx.asr.available === 'boolean');
+await page.$eval('#trIn', (e) => { e.value = '这个多少钱'; });
+await page.click('#btnGo');
+await sleep(900);
+const trO = await page.$eval('#trOut', (e) => e.innerText);
+ok('真机上短语库翻译可用', /これはいくらですか/.test(trO), trO.slice(0, 60).replace(/\n/g, '|'));
+ok('罗马音助词读音正确', /kore wa ikura desu ka/.test(trO));
 
 console.log('\n=== 数据页 ===');
 await goto('#/data');
