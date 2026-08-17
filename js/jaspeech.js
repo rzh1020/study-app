@@ -18,6 +18,8 @@
  */
 
 let manifest = null;
+let k2k = null;          // 汉字 -> 假名词典
+let k2kLoading = null;
 let ctx = null;
 const cache = new Map();      // 文件名 -> AudioBuffer
 let loading = null;
@@ -41,11 +43,81 @@ export async function loadManifest() {
   return loading;
 }
 
+/**
+ * 加载汉字→假名词典（22.6 万词条 + 单字兜底）。
+ * 体积 7.9MB（APK 内压缩后约 2.3MB），首次用到时才加载，之后常驻。
+ */
+export async function loadDict() {
+  if (k2k) return k2k;
+  if (k2kLoading) return k2kLoading;
+  k2kLoading = fetch('./data/k2k.json')
+    .then((r) => (r.ok ? r.json() : null))
+    .then((d) => {
+      k2k = d ? { words: new Map(Object.entries(d.words)), single: new Map(Object.entries(d.single)), maxLen: d.maxLen || 12 }
+              : { words: new Map(), single: new Map(), maxLen: 1 };
+      return k2k;
+    })
+    .catch(() => { k2k = { words: new Map(), single: new Map(), maxLen: 1 }; return k2k; });
+  return k2kLoading;
+}
+
+const IS_KANA = (c) => /[\u3040-\u309F\u30A0-\u30FFー]/.test(c);
+const IS_KANJI = (c) => /[\u4E00-\u9FFF\u3005]/.test(c);
+const KATA_TO_HIRA = (s2) => s2.replace(/[\u30a1-\u30f6]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60));
+
+/**
+ * 任意日语文本 -> 假名。词典最长匹配。
+ *
+ * 这不是形态分析，所以有明确局限，返回值里如实标出来：
+ *   - 动词活用形（食べました）查不到原形，会退化成单字兜底
+ *   - 同形多音（今日 きょう/こんにち）只能取词典里的第一个
+ *   - 没有上下文消歧、没有音高重音
+ * @returns {{kana:string, exact:boolean, unknown:string[], guessed:string[]}}
+ *   exact=true 表示全部由词典/假名构成，没有用到单字推测
+ */
+export function toKana(text) {
+  if (!k2k) return { kana: '', exact: false, unknown: [...text], guessed: [] };
+  const out = [];
+  const unknown = [];
+  const guessed = [];
+  const chars = [...text];
+  let i = 0;
+  while (i < chars.length) {
+    const c = chars[i];
+    if (IS_KANA(c)) { out.push(KATA_TO_HIRA(c)); i++; continue; }
+    if (!IS_KANJI(c)) {
+      // 标点保留（拼读时会转成停顿），其他字符（数字/拉丁）无法朗读
+      if (/[、。！？，,.!?\s]/.test(c)) out.push('、');
+      else unknown.push(c);
+      i++;
+      continue;
+    }
+    // 汉字：从最长往短试词典
+    let hit = null, len = 0;
+    for (let L = Math.min(k2k.maxLen, chars.length - i); L >= 1; L--) {
+      const seg = chars.slice(i, i + L).join('');
+      const r = k2k.words.get(seg);
+      if (r) { hit = r; len = L; break; }
+    }
+    if (hit) { out.push(KATA_TO_HIRA(hit)); i += len; continue; }
+    const one = k2k.single.get(c);
+    if (one) { out.push(KATA_TO_HIRA(one)); guessed.push(c); i++; continue; }
+    unknown.push(c);
+    i++;
+  }
+  return { kana: out.join(''), exact: guessed.length === 0 && unknown.length === 0, unknown, guessed };
+}
+
 /** 预渲染音频是否覆盖这段文本（整句 或 全部假名都有音节） */
 export function coverage(text, kana) {
   if (!manifest) return 'none';
   if (manifest.phrases && manifest.phrases[text]) return 'phrase';
-  const src = kana || text;
+  // 没给假名时，若词典已加载就现场转一次；这样任意汉字文本也能判定可读
+  let src = kana;
+  if (!src) {
+    const t = k2k ? toKana(text) : null;
+    src = t && t.kana ? t.kana : text;
+  }
   const chars = [...src].filter((c) => /[\u3040-\u30FFー]/.test(c));
   if (!chars.length) return 'none';
   const mora = manifest.mora || {};
@@ -140,11 +212,39 @@ export async function speakJa(text, kana, systemSpeak) {
     }
   } catch (e) { console.warn('整句音频播放失败', e); }
   try {
-    const src = kana || text;
-    if (coverage(text, src) === 'mora' && (await playMora(src))) return 'mora';
+    // 没给假名（或给的假名里还有汉字）就查词典转一次 —— 任意文本都要能读
+    let src = kana && ![...kana].some(IS_KANJI) ? kana : null;
+    if (!src) {
+      await loadDict();
+      src = toKana(text).kana;
+    }
+    if (src && (await playMora(src))) return 'mora';
   } catch (e) { console.warn('音节拼接失败', e); }
   if (typeof systemSpeak === 'function' && systemSpeak(text, 'ja-JP')) return 'system';
   return false;
+}
+
+/**
+ * 读之前先问：这段文本能读成什么样。用于界面上如实标注，
+ * 而不是让用户听完才发现读音是瞎猜的。
+ */
+export async function inspect(text) {
+  await loadManifest();
+  if (manifest.phrases && manifest.phrases[text]) {
+    return { level: 'phrase', kana: (manifest.phrases[text] || {}).kana || '', note: '内置整句录音' };
+  }
+  await loadDict();
+  const t = toKana(text);
+  if (!t.kana) return { level: 'none', kana: '', note: '无法转成假名，读不出来', unknown: t.unknown };
+  return {
+    level: t.exact ? 'dict' : 'guess',
+    kana: t.kana,
+    guessed: t.guessed,
+    unknown: t.unknown,
+    note: t.exact
+      ? '读音来自词典，逐音节拼读'
+      : `有 ${t.guessed.length} 个字词典里没查到，按单字读音推测（可能不准）`,
+  };
 }
 
 export function stopJa() {

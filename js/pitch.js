@@ -192,3 +192,195 @@ export function trackRange(track, minClarity = 0.85) {
     high: noteName(Math.round(hi)),
   };
 }
+
+// ==========================================================================
+// 复音音乐的主旋律提取
+//
+// 上面的 NSDF（时域自相关）只适合单音信号。真实音乐里有鼓、贝斯、和弦，
+// 时域自相关会锁到贝斯或鼓的周期上，结果一片噪声 —— 这就是为什么
+// 「加载真实音乐」不能直接复用唱歌用的那套检测。
+//
+// 这里换成频域的谐波累加显著度（harmonic summation salience，Melodia 一类做法）：
+// 对每个候选基频 f，把 f、2f、3f… 各次谐波处的能量加权求和；
+// 人声的谐波列完整且强，所以在正确的 f0 上显著度会明显高于伴奏成分。
+// 再配合三条针对伴奏的处理：
+//   1. 高通去掉贝斯与底鼓（< 130Hz），它们是最强的干扰源
+//   2. 限定人声音域（130-1000Hz）
+//   3. 帧间用维特比式路径连续性约束，抑制八度跳变和瞬时误判
+// ==========================================================================
+
+/** 原地 FFT（迭代 Cooley-Tukey）。re/im 长度必须是 2 的幂。 */
+function fft(re, im) {
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) {
+    let bit = n >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) {
+      [re[i], re[j]] = [re[j], re[i]];
+      [im[i], im[j]] = [im[j], im[i]];
+    }
+  }
+  for (let len = 2; len <= n; len <<= 1) {
+    const ang = (-2 * Math.PI) / len;
+    const wr = Math.cos(ang), wi = Math.sin(ang);
+    for (let i = 0; i < n; i += len) {
+      let cr = 1, ci = 0;
+      for (let k = 0; k < len / 2; k++) {
+        const ur = re[i + k], ui = im[i + k];
+        const vr = re[i + k + len / 2] * cr - im[i + k + len / 2] * ci;
+        const vi = re[i + k + len / 2] * ci + im[i + k + len / 2] * cr;
+        re[i + k] = ur + vr; im[i + k] = ui + vi;
+        re[i + k + len / 2] = ur - vr; im[i + k + len / 2] = ui - vi;
+        const ncr = cr * wr - ci * wi;
+        ci = cr * wi + ci * wr;
+        cr = ncr;
+      }
+    }
+  }
+}
+
+/**
+ * 单帧的谐波显著度曲线。
+ * @returns {{cands:{hz:number,sal:number}[], total:number}} 按显著度降序的候选
+ */
+export function salienceFrame(buf, sampleRate, opt = {}) {
+  const minHz = opt.minHz ?? 130;      // 高于贝斯与底鼓
+  const maxHz = opt.maxHz ?? 1000;
+  const nHarm = opt.harmonics ?? 8;
+  const nCand = opt.candidates ?? 6;
+
+  // 补零到 2 的幂并加 Hann 窗
+  let n = 1;
+  while (n < buf.length) n <<= 1;
+  const re = new Float64Array(n);
+  const im = new Float64Array(n);
+  for (let i = 0; i < buf.length; i++) {
+    re[i] = buf[i] * (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (buf.length - 1)));
+  }
+  fft(re, im);
+  const half = n >> 1;
+  const mag = new Float64Array(half);
+  let total = 0;
+  for (let k = 0; k < half; k++) {
+    mag[k] = Math.hypot(re[k], im[k]);
+    total += mag[k];
+  }
+  if (total <= 0) return { cands: [], total: 0 };
+
+  // 频谱白化：把幅度谱除以它自己的平滑包络。
+  // 不做这步的话，响的贝斯/和弦低频会在显著度上压过安静的人声，
+  // 实测「伴奏加大」的用例就会锁到和弦根音上。白化后各频段被拉到可比的量级，
+  // 谐波结构（人声的特征）而不是绝对能量决定胜负。
+  // 这是 Melodia / YIN-FFT 一类算法里的标准前处理。
+  if (opt.whiten !== false) {
+    const w = Math.max(4, Math.round((opt.whitenBins ?? 40)));
+    const env = new Float64Array(half);
+    let acc = 0;
+    for (let k = 0; k < half; k++) {
+      acc += mag[k];
+      if (k >= w) acc -= mag[k - w];
+      env[k] = acc / Math.min(k + 1, w);
+    }
+    const floor = total / half * 0.05;
+    for (let k = 0; k < half; k++) mag[k] = mag[k] / Math.max(env[k], floor);
+  }
+
+  const binHz = sampleRate / n;
+  // 每 1/4 半音扫一次候选，够细且不至于太慢
+  const step = Math.pow(2, 1 / 48);
+  const out = [];
+  for (let f = minHz; f <= maxHz; f *= step) {
+    let sal = 0;
+    for (let h = 1; h <= nHarm; h++) {
+      const fh = f * h;
+      if (fh > sampleRate / 2) break;
+      const b = fh / binHz;
+      const b0 = Math.floor(b);
+      if (b0 + 1 >= half) break;
+      // 线性插值取谐波处能量；高次谐波权重衰减（人声高次谐波弱且易与伴奏混）
+      const v = mag[b0] * (1 - (b - b0)) + mag[b0 + 1] * (b - b0);
+      sal += v / Math.pow(h, 0.85);
+    }
+    out.push({ hz: f, sal });
+  }
+  // 局部极大 + 取前 nCand
+  const peaks = [];
+  for (let i = 1; i < out.length - 1; i++) {
+    if (out[i].sal > out[i - 1].sal && out[i].sal >= out[i + 1].sal) peaks.push(out[i]);
+  }
+  peaks.sort((a, b) => b.sal - a.sal);
+  // 白化改变了量级，voiced 判定要用白化后的总能量做基准
+  let tot2 = 0;
+  for (let k = 0; k < half; k++) tot2 += mag[k];
+  return { cands: peaks.slice(0, nCand), total: tot2 || total };
+}
+
+/**
+ * 从整段复音音频提取主旋律。
+ *
+ * 帧间用动态规划挑一条「显著度高且音高连续」的路径：
+ * 只看单帧最大值会频繁跳八度（谐波和基频显著度接近时），
+ * 加上连续性代价后旋律线会稳很多。
+ *
+ * @param {Float32Array} sig 单声道采样（建议已降采样到 ~16kHz）
+ * @param {number} rate
+ * @returns {{t:number,hz:number,midi:number|null,sal:number}[]}
+ */
+export function extractMelody(sig, rate, opt = {}) {
+  const win = opt.win ?? 2048;
+  const hop = opt.hop ?? Math.round(rate * 0.02);
+  const jumpPenalty = opt.jumpPenalty ?? 0.55;   // 每半音跳变的代价
+  const voicedRatio = opt.voicedRatio ?? 0.06;   // 显著度占全帧能量的下限
+
+  const frames = [];
+  for (let i = 0; i + win <= sig.length; i += hop) {
+    const f = salienceFrame(sig.subarray(i, i + win), rate, opt);
+    frames.push({ t: i / rate, cands: f.cands, total: f.total });
+  }
+  if (!frames.length) return [];
+
+  // 动态规划：state = 该帧的某个候选
+  const NEG = -1e18;
+  let prevScore = frames[0].cands.map((c) => c.sal / (frames[0].total || 1));
+  const back = [];
+  for (let i = 1; i < frames.length; i++) {
+    const cur = frames[i].cands;
+    const score = new Array(cur.length).fill(NEG);
+    const bp = new Array(cur.length).fill(-1);
+    for (let j = 0; j < cur.length; j++) {
+      const base = cur[j].sal / (frames[i].total || 1);
+      for (let k = 0; k < prevScore.length; k++) {
+        if (prevScore[k] === NEG) continue;
+        const semi = Math.abs(12 * Math.log2(cur[j].hz / frames[i - 1].cands[k].hz));
+        const v = prevScore[k] + base - jumpPenalty * Math.min(semi, 24) / 12;
+        if (v > score[j]) { score[j] = v; bp[j] = k; }
+      }
+      if (score[j] === NEG) { score[j] = base; bp[j] = -1; }
+    }
+    back.push(bp);
+    prevScore = score;
+  }
+  // 回溯
+  let best = 0;
+  for (let j = 1; j < prevScore.length; j++) if (prevScore[j] > prevScore[best]) best = j;
+  const path = new Array(frames.length).fill(-1);
+  path[frames.length - 1] = best;
+  for (let i = frames.length - 1; i > 0; i--) {
+    const bp = back[i - 1];
+    path[i - 1] = path[i] >= 0 && bp ? bp[path[i]] : -1;
+  }
+
+  return frames.map((f, i) => {
+    const idx = path[i];
+    const c = idx >= 0 ? f.cands[idx] : null;
+    // 显著度太低的帧判为无人声（间奏、纯伴奏）
+    const voiced = c && f.total > 0 && c.sal / f.total >= voicedRatio;
+    return {
+      t: f.t,
+      hz: voiced ? c.hz : -1,
+      midi: voiced ? hzToMidi(c.hz) : null,
+      sal: c && f.total ? c.sal / f.total : 0,
+    };
+  });
+}

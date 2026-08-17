@@ -1,7 +1,7 @@
 import { $, esc, toast, fmtDur } from '../ui.js';
 import { setTitle } from '../app.js';
 import { mic, audioCtx, playNote, playSequence, sleep } from '../audio.js';
-import { noteName, parseNote, hzToMidi, midiToHz, detectPitch, decimate, pitchAccuracy } from '../pitch.js';
+import { noteName, hzToMidi, decimate, extractMelody } from '../pitch.js';
 import { db } from '../db.js';
 import { getConfig } from '../store.js';
 import { keepAwake, onNativePause } from '../native.js';
@@ -301,9 +301,10 @@ function fileMode(view, cfg) {
   view.innerHTML = `
     <div class="card">
       <h3>从手机里的音频提取旋律</h3>
-      <div class="small muted mb">选一段音频（mp3 / m4a / wav / flac 都行）。
-      建议选 <b>10-30 秒的清唱或人声突出的片段</b> —— 伴奏越少，提取的旋律越准。
-      整首歌里鼓和贝斯会干扰基频检测。</div>
+      <div class="small muted mb">选一段音频（mp3 / m4a / wav / flac 都行），
+      <b>带伴奏的正常歌曲可以直接用</b>。提取用的是频域谐波显著度 + 频谱白化，
+      能在鼓和贝斯里把人声主旋律拉出来。建议一次取 10-30 秒（一句或一段），
+      整首分析会慢且旋律会被切成太多碎片。</div>
       <input type="file" id="f" accept="audio/*">
       <div class="row wrap mt" style="gap:8px">
         <label class="field grow" style="margin:0"><span>从第几秒开始</span>
@@ -379,39 +380,43 @@ function fileMode(view, cfg) {
     for (let i = 0; i < mono.length; i++) {
       mono[i] = ch1 ? (ch0[start + i] + ch1[start + i]) / 2 : ch0[start + i];
     }
-    const dec = sr >= 32000 ? 3 : 1;
+    // 降到 ~16kHz：人声基频 < 1kHz，FFT 规模减小直接决定能不能在手机上跑得动
+    const dec = sr >= 32000 ? Math.round(sr / 16000) : 1;
     const sig = dec > 1 ? decimate(mono, dec) : mono;
     const rate = sr / dec;
-    const win = 1024;
-    const hop = Math.round(rate * 0.02);        // 20ms 一帧
-    const track = [];
-    for (let i = 0; i + win <= sig.length; i += hop) {
-      const p = detectPitch(sig.subarray(i, i + win), rate, { minHz: 70, maxHz: 1100 });
-      track.push({
-        t: i / rate,
-        midi: p.hz > 0 && p.clarity > 0.9 ? hzToMidi(p.hz, a4v) : null,
-      });
-    }
-    // 中值滤波：单帧的八度跳变很常见，取 5 帧中值能压掉
+
+    // 复音旋律提取（频域谐波显著度 + 频谱白化 + 帧间连续性）。
+    // 不能用时域自相关：真实音乐里它会锁到贝斯或鼓上，实测直接检不出。
+    const raw = extractMelody(sig, rate, {
+      win: 2048,
+      hop: Math.round(rate * 0.02),
+      minHz: 130, maxHz: 1000,
+    });
+    const track = raw.map((p) => ({ t: p.t, midi: p.midi, sal: p.sal }));
+
+    // 中值滤波压掉残余毛刺
     const med = track.map((p, i) => {
       const w = track.slice(Math.max(0, i - 2), i + 3).map((x) => x.midi).filter((x) => x !== null);
       if (w.length < 3) return { ...p, midi: null };
       w.sort((a, b) => a - b);
       return { ...p, midi: w[Math.floor(w.length / 2)] };
     });
-    // 并成音符
+
+    // 并成音符：量化到半音，相邻同音合并，丢掉太短的（多是滑音过渡）
     const notes = [];
     let cur = null;
     for (const p of med) {
       if (p.midi === null) { if (cur) { notes.push(cur); cur = null; } continue; }
       const q = Math.round(p.midi);
-      if (cur && Math.abs(q - cur.midi) <= 0 ) { cur.t1 = p.t; cur.n++; continue; }
+      if (cur && q === cur.midi) { cur.t1 = p.t; cur.n++; continue; }
       if (cur) notes.push(cur);
       cur = { midi: q, t0: p.t, t1: p.t, n: 1 };
     }
     if (cur) notes.push(cur);
-    const kept = notes.filter((n) => n.t1 - n.t0 >= 0.09);
-    return { track: med, notes: kept, offSec, lenSec };
+    const kept = notes.filter((n) => n.t1 - n.t0 >= 0.1);
+    const voicedRatio = med.filter((x) => x.midi !== null).length / Math.max(1, med.length);
+    void a4v;
+    return { track: med, notes: kept, offSec, lenSec, voicedRatio };
   }
 
   function drawMel() {
@@ -458,8 +463,10 @@ function fileMode(view, cfg) {
         <div class="stat"><b>${noteName(lowN)}–${noteName(highN)}</b><span>音域</span></div>
         <div class="stat"><b>${highN - lowN}</b><span>跨度(半音)</span></div>
       </div>
-      <div class="tiny dim mt">紫块是量化出的音符，紫线是原始音高轨迹。
-      如果块很碎、线乱跳，说明这段伴奏太重，换清唱段落效果会好很多。</div>`;
+      <div class="tiny dim mt">紫块是量化出的音符，紫线是提取出的音高轨迹。
+      有声帧占比 ${Math.round((analyzed.voicedRatio || 0) * 100)}% —— 
+      占比低说明这段里人声不明显（纯伴奏段/间奏），换一段人声清楚的会更好。
+      块很碎通常是转音多或提取到了伴奏，可以缩短时长只取一句试试。</div>`;
   }
 
   $('#btnUse').onclick = async () => {

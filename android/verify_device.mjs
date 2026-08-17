@@ -132,7 +132,7 @@ ok('声乐科普 45', seeded.decks.theory.total === 45, String(seeded.decks.theo
 console.log('\n=== 首页 ===');
 await goto('#/home');
 const homeTxt = await page.$eval('#view', (e) => e.innerText);
-ok('首页渲染', /天连续/.test(homeTxt), homeTxt.slice(0, 40).replace(/\n/g, '|'));
+ok('首页渲染', /连续 \d+ 天/.test(homeTxt), homeTxt.slice(0, 40).replace(/\n/g, '|'));
 await shot('01-home');
 
 // 真机的数据库是持久的：跑过几轮验证后当天新卡配额（默认 12/天）就用完了，

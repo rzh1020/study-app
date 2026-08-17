@@ -502,3 +502,88 @@ a { color: var(--acc); }
 .sing-n.bad { border-color: rgba(242,88,91,.5); }
 .sing-n.bad i { color: var(--bad); }
 .sing-n.miss { opacity: .45; }
+
+/* ================= 首页：单一路径 =================
+   之前是「任务树」，每次进来都要自己挑先做哪个。改成一条路径：
+   顶部一行状态 → 一张「现在做这个」大卡 → 路径节点 → 次要入口。 */
+.hp-top { display: flex; align-items: center; gap: 14px; padding: 4px 2px 16px; }
+.hp-ring {
+  --p: 0;
+  width: 58px; height: 58px; border-radius: 50%; flex: none;
+  display: grid; place-items: center; position: relative;
+  background: conic-gradient(var(--ok) calc(var(--p) * 1%), var(--bg3) 0);
+}
+.hp-ring::after {
+  content: ''; position: absolute; inset: 5px; border-radius: 50%; background: var(--bg);
+}
+.hp-ring span {
+  position: relative; z-index: 1; font-size: 15px; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.hp-ring span i { font-size: 9px; font-style: normal; color: var(--fg3); }
+.hp-top-t b { display: block; font-size: 17px; font-weight: 600; }
+.hp-top-t span { display: block; font-size: 12px; color: var(--fg3); margin-top: 2px; }
+
+.hp-next {
+  display: flex; align-items: center; gap: 14px;
+  padding: 18px 16px; border-radius: 18px; margin-bottom: 18px;
+  background: linear-gradient(135deg, rgba(91,140,255,.22), rgba(163,123,255,.14));
+  border: 1px solid rgba(91,140,255,.55);
+  text-decoration: none; color: inherit;
+}
+.hp-next.done { background: rgba(62,207,142,.1); border-color: rgba(62,207,142,.45); }
+.hp-next-ic {
+  width: 52px; height: 52px; border-radius: 15px; flex: none;
+  display: grid; place-items: center; font-size: 24px; font-weight: 600;
+  background: var(--acc); color: #fff;
+}
+.hp-next.done .hp-next-ic { background: var(--ok); color: #06301f; }
+.hp-next-t { flex: 1; min-width: 0; }
+.hp-next-t span { display: block; font-size: 11px; color: var(--fg3); letter-spacing: .5px; }
+.hp-next-t b { display: block; font-size: 21px; font-weight: 700; margin: 1px 0 2px; }
+.hp-next-t i { display: block; font-size: 12.5px; font-style: normal; color: var(--fg2); }
+.hp-next-go {
+  width: 38px; height: 38px; border-radius: 50%; flex: none;
+  display: grid; place-items: center; font-size: 14px;
+  background: rgba(255,255,255,.14); color: #fff;
+}
+
+.hp-path { position: relative; }
+.hp-step {
+  display: flex; align-items: center; gap: 13px;
+  padding: 9px 4px; position: relative; text-decoration: none; color: inherit;
+}
+.hp-line {
+  position: absolute; left: 19px; top: 0; bottom: 0; width: 2px;
+  background: var(--line);
+}
+.hp-line.first { top: 50%; }
+.hp-line.last { bottom: 50%; }
+.hp-dot {
+  width: 34px; height: 34px; border-radius: 50%; flex: none; z-index: 1;
+  display: grid; place-items: center; font-size: 14px; font-weight: 600;
+  background: var(--bg3); color: var(--fg3); border: 2px solid var(--bg);
+}
+.hp-step.cur .hp-dot { background: var(--acc); color: #fff; box-shadow: 0 0 0 4px rgba(91,140,255,.2); }
+.hp-step.done .hp-dot { background: rgba(62,207,142,.22); color: var(--ok); }
+.hp-step.opt .hp-dot { background: var(--bg2); }
+.hp-txt { flex: 1; min-width: 0; }
+.hp-txt b { display: block; font-size: 15px; font-weight: 600; }
+.hp-txt i {
+  display: block; font-size: 12px; font-style: normal; color: var(--fg3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.hp-step.done .hp-txt b { color: var(--fg2); }
+.hp-step.opt { opacity: .72; }
+.hp-opt {
+  font-size: 10px; color: var(--fg3); padding: 1px 7px;
+  border: 1px solid var(--line); border-radius: 999px; flex: none;
+}
+
+.hp-more { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 20px; }
+.hp-more a {
+  padding: 11px 10px; border-radius: 12px; text-decoration: none; color: inherit;
+  background: var(--bg2); border: 1px solid var(--line); text-align: center;
+}
+.hp-more a b { display: block; font-size: 14px; font-weight: 600; }
+.hp-more a i { display: block; font-size: 10.5px; font-style: normal; color: var(--fg3); margin-top: 1px; }

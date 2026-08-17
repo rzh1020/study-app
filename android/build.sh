@@ -52,7 +52,7 @@ echo "      $ASSET_COUNT 个文件, $ASSET_SIZE"
 
 # 自检：assets 里必须有这些，缺了 App 会白屏
 for must in index.html js/app.js js/native.js js/jaspeech.js css/app.css \
-            data/kana.json data/vocab.json data/plan.json data/phrases.json audio/manifest.json; do
+            data/kana.json data/vocab.json data/plan.json data/phrases.json data/k2k.json audio/manifest.json; do
   [ -f "$OUT/assets/$must" ] || { echo "!! assets 缺少 $must"; exit 1; }
 done
 

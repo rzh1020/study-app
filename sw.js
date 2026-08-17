@@ -27,6 +27,7 @@ const ASSETS = [
   './js/translate.js',
   './js/jaspeech.js',
   './audio/manifest.json',
+  './data/k2k.json',
   './js/views/home.js',
   './js/views/jp.js',
   './js/views/review.js',

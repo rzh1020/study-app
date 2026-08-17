@@ -162,9 +162,15 @@ async function main() {
   console.log('\n=== 首页 ===');
   await goto('#/home');
   const homeText = await page.$eval('#view', (e) => e.innerText);
-  ok('首页有连续天数', /天连续/.test(homeText));
-  ok('首页有三个碎片任务', (await page.$$('#view .task')).length >= 5, String((await page.$$('#view .task')).length));
-  ok('首页显示回归提醒（尚无基线）', /还没建立基线|该做回归了/.test(homeText));
+  ok('首页显示连续天数', /连续 \d+ 天/.test(homeText), homeText.slice(0, 50).replace(/\n/g, '|'));
+  ok('首页只给一个主动作', (await page.$$('#view .hp-next')).length === 1,
+    String((await page.$$('#view .hp-next')).length));
+  ok('首页有路径节点', (await page.$$('#view .hp-step')).length >= 5,
+    String((await page.$$('#view .hp-step')).length));
+  ok('当前节点唯一且高亮', (await page.$$('#view .hp-step.cur')).length === 1,
+    String((await page.$$('#view .hp-step.cur')).length));
+  ok('尚无基线时把体检排在最前', /声乐体检/.test(homeText));
+  ok('首页没有说教段落', !/为什么|原则|前提/.test(homeText), homeText.slice(0, 60).replace(/\n/g, '|'));
   await shot('01-home');
 
   console.log('\n=== 牌组页 ===');
@@ -628,37 +634,49 @@ async function main() {
   // 合成一段已知旋律的音频喂给分析函数，验证真能提取出对的音
   const mel = await page.evaluate(async () => {
     const { audioCtx } = await import('./js/audio.js');
-    const { detectPitch, decimate, hzToMidi, midiToHz } = await import('./js/pitch.js');
+    const { extractMelody, midiToHz, hzToMidi } = await import('./js/pitch.js');
     const ctx = audioCtx();
-    const sr = 24000;
-    const want = [60, 64, 67, 72];          // do mi sol do'
-    const noteSec = 0.5;
-    const buf = ctx.createBuffer(1, sr * noteSec * want.length, sr);
+    const sr = 16000;
+    const want = [67, 69, 71, 72];        // G4 A4 B4 C5
+    const bass = [36, 41, 43, 36];
+    const noteSec = 0.6;
+    const n = Math.round(sr * noteSec * want.length);
+    const buf = ctx.createBuffer(1, n, sr);
     const d = buf.getChannelData(0);
+    // 合成「人声 + 贝斯 + 和弦 + 底鼓」，模拟真实带伴奏音乐
     want.forEach((m, k) => {
-      const f = midiToHz(m);
+      const f0 = midiToHz(m), bf = midiToHz(bass[k % bass.length]);
+      const chord = [48, 52, 55].map(midiToHz);
       for (let i = 0; i < sr * noteSec; i++) {
+        const idx = k * Math.round(sr * noteSec) + i;
+        if (idx >= n) break;
         const t = i / sr;
-        const idx = k * sr * noteSec + i;
-        // 带谐波，模拟人声
-        d[idx] = 0.35 * (Math.sin(2 * Math.PI * f * t) + 0.6 * Math.sin(4 * Math.PI * f * t)
-                 + 0.3 * Math.sin(6 * Math.PI * f * t));
+        let v = 0;
+        for (let h = 1; h <= 6; h++) v += (0.9 / h) * Math.sin(2 * Math.PI * f0 * h * t);
+        let b = 0;
+        for (let h = 1; h <= 3; h++) b += (1.0 / h) * Math.sin(2 * Math.PI * bf * h * t);
+        let c = 0;
+        for (const f of chord) c += 0.5 * Math.sin(2 * Math.PI * f * t + 0.7);
+        let dr = 0;
+        if (i < sr * 0.06) dr = (Math.random() * 2 - 1) * 1.2 * Math.pow(1 - i / (sr * 0.06), 3);
+        d[idx] = 0.22 * (0.5 * v + 0.9 * b + 0.5 * c + dr);
       }
     });
-    // 复刻 sing.js 里的提取逻辑（同一套算法）
-    const dec = 1, rate = sr, win = 1024, hop = Math.round(rate * 0.02);
-    const sig = buf.getChannelData(0);
-    const raw = [];
-    for (let i = 0; i + win <= sig.length; i += hop) {
-      const p = detectPitch(sig.subarray(i, i + win), rate, { minHz: 70, maxHz: 1100 });
-      raw.push(p.hz > 0 && p.clarity > 0.9 ? Math.round(hzToMidi(p.hz)) : null);
+    const track = extractMelody(buf.getChannelData(0), sr,
+      { win: 2048, hop: Math.round(sr * 0.02), minHz: 130, maxHz: 1000 });
+    const found = [];
+    for (let k = 0; k < want.length; k++) {
+      const vals = track.filter((p) => p.midi !== null
+        && p.t >= k * noteSec + noteSec * 0.3 && p.t <= (k + 1) * noteSec - noteSec * 0.1)
+        .map((p) => p.midi).sort((a, b) => a - b);
+      found.push(vals.length ? Math.round(vals[Math.floor(vals.length / 2)]) : null);
     }
-    const found = [...new Set(raw.filter((x) => x !== null))].sort((a, b) => a - b);
-    void dec;
-    return { want, found, frames: raw.length, valid: raw.filter((x) => x !== null).length };
+    void hzToMidi;
+    return { want, found, frames: track.length, valid: track.filter((p) => p.midi !== null).length };
   });
-  ok('本地音频能提取出正确的音',
-    mel.want.every((m) => mel.found.includes(m)), JSON.stringify(mel));
+  ok('带伴奏音乐能提取出正确旋律（至少 3/4 命中）',
+    mel.found.filter((f, i) => f === mel.want[i]).length >= 3, JSON.stringify(mel));
+  ok('没有锁到贝斯上', mel.found.every((f) => f === null || f > 55), JSON.stringify(mel.found));
   ok('提取覆盖率合理', mel.valid / mel.frames > 0.7, `${mel.valid}/${mel.frames}`);
   await shot('17-sing-file');
 
@@ -773,7 +791,7 @@ async function main() {
   ok('manifest 可解析', mani.ok && mani.icons === 4, JSON.stringify(mani));
 
   await goto('#/nonexistent');
-  ok('未知路由回落到首页', /天连续/.test(await page.$eval('#view', (e) => e.innerText)));
+  ok('未知路由回落到首页', /连续 \d+ 天/.test(await page.$eval('#view', (e) => e.innerText)));
 
   // 重新加载，验证数据持久化 + 二次种卡不重复
   await page.reload({ waitUntil: 'networkidle2' });
@@ -805,7 +823,7 @@ async function main() {
   await page.reload({ waitUntil: 'domcontentloaded' });
   await sleep(2000);
   const offlineText = await page.$eval('#view', (e) => e.innerText).catch(() => '');
-  ok('断网后页面仍能加载', /天连续/.test(offlineText), offlineText.slice(0, 60).replace(/\n/g, '|'));
+  ok('断网后页面仍能加载', /连续 \d+ 天/.test(offlineText), offlineText.slice(0, 60).replace(/\n/g, '|'));
 
   await goto('#/review/kana_hira');
   const offlineCard = await page.$('#qcard .q-front');

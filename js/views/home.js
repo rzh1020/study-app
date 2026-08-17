@@ -3,85 +3,141 @@ import { setTitle } from '../app.js';
 import { deckStats, getConfig, streak, todayReviewCount, DECKS } from '../store.js';
 import { db, dayStart, dayKey } from '../db.js';
 
+/**
+ * 首页 = 单一路径。
+ *
+ * 之前这一页是「树」：5 个任务行分成两组，外加计划卡，用户每次进来都要
+ * 自己判断先做哪个。Duolingo 2022 改版把「树」换成单路径，理由是
+ * 「两个人花同样时间做同样多课程，却停在不同地方」—— 选择本身是负担，
+ * 而且会导致进度不可比。
+ *
+ * 所以这一版：
+ *   1. 顶部只有一行状态（连续天数 + 今日完成度），不占版面
+ *   2. 中间一张「现在做这个」大卡，只给一个动作
+ *   3. 下面是今天的路径节点：做完的打勾、当前的高亮、后面的压暗
+ *   4. 解释性文字全部去掉 —— 需要说明的写在各功能页里，首页只负责「开始」
+ */
+
+/** 一个节点的定义。order 决定路径顺序，也就是我建议的先后。 */
+function buildSteps({ jpDue, jpNew, theory, earDone, earTarget, voiceMin, voiceTarget, needReg }) {
+  const steps = [];
+  if (needReg) {
+    steps.push({
+      id: 'reg', icon: '基', label: '声乐体检', href: '#/voice/regression',
+      sub: '建立基线，之后每周复测才有可比性',
+      done: false, weight: 0,
+    });
+  }
+  steps.push({
+    id: 'jp', icon: '語', label: '日语卡片', href: '#/review/all',
+    sub: jpDue + jpNew > 0 ? `到期 ${jpDue}，新词 ${jpNew}` : '今天做完了',
+    done: jpDue + jpNew === 0, weight: 1,
+  });
+  steps.push({
+    id: 'ear', icon: '耳', label: '练耳', href: '#/ear',
+    sub: earDone >= earTarget ? `今天 ${earDone} 题，达标` : `${earDone} / ${earTarget} 题`,
+    done: earDone >= earTarget, weight: 2,
+  });
+  steps.push({
+    id: 'sing', icon: '唱', label: '带唱', href: '#/sing',
+    sub: '跟着目标音高唱，看自己准不准',
+    done: false, weight: 3, optional: true,
+  });
+  steps.push({
+    id: 'voice', icon: '声', label: '引导练声', href: '#/voice/routine',
+    sub: voiceMin >= voiceTarget ? `今天 ${voiceMin} 分钟，达标` : `${voiceMin} / ${voiceTarget} 分钟 · 需要出声`,
+    done: voiceMin >= voiceTarget, weight: 4,
+  });
+  steps.push({
+    id: 'theory', icon: '理', label: '声乐科普', href: '#/review/theory',
+    sub: theory.due + theory.newLeft > 0 ? `${theory.due + theory.newLeft} 张` : '今天做完了',
+    done: theory.due + theory.newLeft === 0, weight: 5, optional: true,
+  });
+  return steps;
+}
+
 export async function render(view) {
-  setTitle('今日');
-  const [stats, cfg, st, revToday, earRows, voiceRows] = await Promise.all([
-    deckStats(),
-    getConfig(),
-    streak(),
-    todayReviewCount(),
+  const [stats, cfg, st, revToday, earRows, voiceRows, regRows] = await Promise.all([
+    deckStats(), getConfig(), streak(), todayReviewCount(),
     db.byIndex('earlog', 'ts', IDBKeyRange.lowerBound(dayStart())),
     db.byIndex('voice', 'ts', IDBKeyRange.lowerBound(dayStart())),
+    db.byIndex('voice', 'kind', IDBKeyRange.only('regression')),
   ]);
+  setTitle('', `<span class="pill ${st.todayDone ? 'ok' : ''}">🔥 ${st.days}</span>`);
 
   let jpDue = 0, jpNew = 0;
   for (const [d, s] of Object.entries(stats)) {
     if (!s.enabled || DECKS[d].group !== '日语') continue;
     jpDue += s.due; jpNew += s.newLeft;
   }
-  const theory = stats.theory;
-  const earDone = earRows.length;
-  const earRight = earRows.filter((r) => r.correct).length;
-  const voiceMin = Math.round(voiceRows.reduce((a, v) => a + (v.durationSec || 0), 0) / 60);
+  const lastReg = regRows.sort((a, b) => b.ts - a.ts)[0];
+  const daysSinceReg = lastReg ? Math.floor((Date.now() - lastReg.ts) / 86400000) : null;
 
-  const dow = new Date().getDay(); // 0=周日
-  const isRegDay = dow === 0;
-  const regRows = (await db.byIndex('voice', 'kind', IDBKeyRange.only('regression'))).sort((a, b) => b.ts - a.ts);
-  const lastRegTs = regRows[0]?.ts || 0;
-  const daysSinceReg = lastRegTs ? Math.floor((Date.now() - lastRegTs) / 86400000) : null;
+  const steps = buildSteps({
+    jpDue, jpNew, theory: stats.theory,
+    earDone: earRows.length, earTarget: cfg.earDailyTarget,
+    voiceMin: Math.round(voiceRows.reduce((a, v) => a + (v.durationSec || 0), 0) / 60),
+    voiceTarget: cfg.voiceDailyMin,
+    needReg: daysSinceReg === null || daysSinceReg >= 7,
+  });
 
-  const task = (icon, title, sub, href, done) => `
-    <a class="task ${done ? 'done' : ''}" href="${href}" style="text-decoration:none;color:inherit">
-      <div class="tk-ic">${done ? '✓' : icon}</div>
-      <div class="tk-main"><div class="tk-t">${esc(title)}</div><div class="tk-s">${esc(sub)}</div></div>
-      <div class="dim">›</div>
-    </a>`;
+  // 「现在做这个」= 路径上第一个没完成的必做项；全做完了就给可选项
+  const next = steps.find((s) => !s.done && !s.optional)
+    || steps.find((s) => !s.done)
+    || null;
+  const required = steps.filter((s) => !s.optional);
+  const doneCount = required.filter((s) => s.done).length;
+  const pct = Math.round((doneCount / Math.max(required.length, 1)) * 100);
 
   view.innerHTML = `
-    <div class="card">
-      <div class="row spread">
-        <div>
-          <div class="streak">${st.days}<span style="font-size:14px;font-weight:400;color:var(--fg2)"> 天连续</span></div>
-          <div class="tiny dim mt" style="margin-top:4px">${st.todayDone ? '今天已打卡' : '今天还没开始'}</div>
-        </div>
-        <div class="col" style="align-items:flex-end;gap:4px">
-          <span class="pill ${revToday >= 30 ? 'ok' : ''}">复习 ${revToday}</span>
-          <span class="pill ${earDone >= cfg.earDailyTarget ? 'ok' : ''}">练耳 ${earDone}/${cfg.earDailyTarget}</span>
-          <span class="pill ${voiceMin >= cfg.voiceDailyMin ? 'ok' : ''}">练声 ${voiceMin}/${cfg.voiceDailyMin}分</span>
-        </div>
+    <div class="hp-top">
+      <div class="hp-ring" style="--p:${pct}">
+        <span>${pct}<i>%</i></span>
+      </div>
+      <div class="hp-top-t">
+        <b>${st.todayDone ? '今天已经开始了' : '今天还没开始'}</b>
+        <span>连续 ${st.days} 天 · 复习 ${revToday} 次 · 今日 ${doneCount}/${required.length} 项</span>
       </div>
     </div>
 
-    ${isRegDay || (daysSinceReg !== null && daysSinceReg >= 7) || daysSinceReg === null ? `
-    <div class="card" style="border-color:rgba(163,123,255,.5);background:rgba(163,123,255,.08)">
-      <h3 style="color:var(--purple)">${daysSinceReg === null ? '还没建立基线' : '该做回归了'}</h3>
-      <div class="small muted mb">${daysSinceReg === null
-        ? '先跑一次体检套件建立基线，之后每周同条件复测才有可比性。'
-        : `上次回归是 ${daysSinceReg} 天前。固定素材、固定调、固定时段复测一次。`}</div>
-      <a class="btn btn-pri btn-block" href="#/voice/regression">开始体检套件（约 6 分钟）</a>
-    </div>` : ''}
+    ${next ? `
+    <a class="hp-next" href="${next.href}">
+      <div class="hp-next-ic">${esc(next.icon)}</div>
+      <div class="hp-next-t">
+        <span>现在做这个</span>
+        <b>${esc(next.label)}</b>
+        <i>${esc(next.sub)}</i>
+      </div>
+      <div class="hp-next-go">▶</div>
+    </a>` : `
+    <div class="hp-next done">
+      <div class="hp-next-ic">✓</div>
+      <div class="hp-next-t">
+        <span>今天的都做完了</span>
+        <b>去随便练点什么</b>
+        <i>下面任选一项，或者休息</i>
+      </div>
+    </div>`}
 
-    <div class="sec-title">碎片时间（不用出声）</div>
-    <div class="card">
-      ${task('語', '日语卡片', jpDue + jpNew > 0 ? `到期 ${jpDue} · 新卡 ${jpNew}` : '今天清空了', '#/jp', jpDue + jpNew === 0)}
-      ${task('耳', '练耳', earDone ? `已做 ${earDone} 题 · 正确率 ${earDone ? Math.round((earRight / earDone) * 100) : 0}%` : `目标 ${cfg.earDailyTarget} 题`, '#/ear', earDone >= cfg.earDailyTarget)}
-      ${task('理', '声乐/乐理科普', theory.due + theory.newLeft > 0 ? `到期 ${theory.due} · 新卡 ${theory.newLeft}` : '今天清空了', '#/review/theory', theory.due + theory.newLeft === 0)}
+    <div class="hp-path">
+      ${steps.map((s, i) => {
+        const isNext = next && s.id === next.id;
+        const cls = s.done ? 'done' : isNext ? 'cur' : s.optional ? 'opt' : '';
+        return `<a class="hp-step ${cls}" href="${s.href}">
+          <span class="hp-line ${i === 0 ? 'first' : ''} ${i === steps.length - 1 ? 'last' : ''}"></span>
+          <span class="hp-dot">${s.done ? '✓' : esc(s.icon)}</span>
+          <span class="hp-txt"><b>${esc(s.label)}</b><i>${esc(s.sub)}</i></span>
+          ${s.optional && !s.done ? '<span class="hp-opt">可选</span>' : ''}
+        </a>`;
+      }).join('')}
     </div>
 
-    <div class="sec-title">需要出声（家里 15 分钟）</div>
-    <div class="card">
-      ${task('声', '引导练声', voiceMin ? `今天已练 ${voiceMin} 分钟` : '热身→气息→音阶→抠句', '#/voice/routine', voiceMin >= cfg.voiceDailyMin)}
-      ${task('准', '音准实时反馈', '看着音分偏差唱，外部校正', '#/voice', false)}
-      ${task('唱', '带唱练习', '跟着目标音高唱，或用手机里的歌当素材', '#/sing', false)}
+    <div class="hp-more">
+      <a href="#/plan"><b>计划</b><i>第几周该做什么</i></a>
+      <a href="#/translate"><b>翻译</b><i>说一句，出日语</i></a>
+      <a href="#/data"><b>数据</b><i>进度与设置</i></a>
     </div>
 
-    <div class="card tight">
-      <a href="#/plan" style="text-decoration:none;color:inherit" class="row spread">
-        <div><div class="tk-t">12 周学习计划</div><div class="tk-s">每周做什么、判据是什么</div></div>
-        <div class="dim">›</div>
-      </a>
-    </div>
-
-    <div class="tiny dim center" style="margin-top:18px">${dayKey()} · 数据全部存在本机</div>
+    <div class="tiny dim center" style="margin-top:16px">${dayKey()}</div>
   `;
 }
