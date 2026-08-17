@@ -282,13 +282,33 @@ const spx = await page.evaluate(async () => {
 console.log(`  INFO  语音识别 available=${spx.asr.available} offline=${spx.asr.offline} : ${spx.asr.reason}`);
 console.log(`  INFO  TTS 真实能力（probeTts）日语=${spx.ja} 中文=${spx.zh}`);
 ok('至少有一种语言能朗读', spx.ja || spx.zh, `ja=${spx.ja} zh=${spx.zh}`);
-if (!spx.ja) {
-  console.log('  INFO  日语无合成语音 —— 翻译页应显示「无法朗读」而不是提示装语音包');
-  await goto('#/translate');
-  await sleep(4200);
-  const cap = await page.$eval('#capBox', (e) => e.innerText);
-  ok('能力表如实标出日语不可朗读', /朗读日语[\s\S]*不可用/.test(cap), cap.replace(/\n/g, '|').slice(0, 90));
-}
+// 系统没有日语引擎（实测就是这样），所以日语朗读必须由内置预渲染语音兜住
+await goto('#/translate');
+await sleep(4200);
+const cap = await page.$eval('#capBox', (e) => e.innerText);
+ok('能力表标出日语用内置语音', /朗读日语[\s\S]*内置语音/.test(cap), cap.replace(/\n/g, '|').slice(0, 80));
+const jaAudio = await page.evaluate(async () => {
+  const J = await import('./js/jaspeech.js');
+  const st = await J.stats();
+  // 注意别用 mora 当键名：会覆盖 stats() 里的 mora 计数
+  return { st, played: await J.speakJa('これはいくらですか', 'これはいくらですか', null),
+           moraPlayed: await J.speakJa('わたしはがくせいです', 'わたしはがくせいです', null) };
+});
+ok('内置日语语音已打包（127 句 + 104 音节）',
+  jaAudio.st.phrases === 127 && jaAudio.st.mora === 104, JSON.stringify(jaAudio));
+ok('真机上整句语音播放成功', jaAudio.played === 'phrase', String(jaAudio.played));
+ok('真机上音节拼接播放成功', jaAudio.moraPlayed === 'mora', String(jaAudio.moraPlayed));
+if (!spx.ja) console.log('  INFO  系统确实没有日语引擎，内置语音是唯一通路 —— 已验证可用');
+
+console.log('\n=== 带唱（真机）===');
+await goto('#/sing');
+await sleep(1100);
+ok('带唱页渲染', (await page.$('#roll')) !== null);
+const rollPx = await page.$eval('#roll', (c) => {
+  const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+  let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 0) n++; return n;
+});
+ok('钢琴卷帘已绘制', rollPx > 2000, String(rollPx));
 ok('原生桥返回了语音识别状态', typeof spx.asr.available === 'boolean');
 await page.$eval('#trIn', (e) => { e.value = '这个多少钱'; });
 await page.click('#btnGo');

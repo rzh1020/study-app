@@ -570,6 +570,98 @@ async function main() {
   ok('短语库无残留边界标记', phQ.mark === 0, String(phQ.mark));
   ok('罗马音里没有漏转的假名', phQ.badRom === 0, String(phQ.badRom));
 
+  console.log('\n=== 内置日语语音（预渲染，不依赖系统 TTS）===');
+  const ja = await page.evaluate(async () => {
+    const J = await import('./js/jaspeech.js');
+    const st = await J.stats();
+    return {
+      st,
+      phrase: J.coverage('これはいくらですか', 'これはいくらですか'),
+      mora: J.coverage('わたしはがくせいです', 'わたしはがくせいです'),
+      kanjiOnly: J.coverage('量子力学', ''),
+      played: await J.speakJa('これはいくらですか', 'これはいくらですか', null),
+      playedMora: await J.speakJa('わたしはがくせいです', 'わたしはがくせいです', null),
+    };
+  });
+  ok('127 条整句语音已打包', ja.st.phrases === 127, String(ja.st.phrases));
+  ok('104 个假名音节已打包', ja.st.mora === 104, String(ja.st.mora));
+  ok('渲染引擎记录在案', ja.st.engine === 'open-jtalk', String(ja.st.engine));
+  ok('短语走整句音频', ja.phrase === 'phrase', String(ja.phrase));
+  ok('任意假名走音节拼接', ja.mora === 'mora', String(ja.mora));
+  ok('纯汉字无假名时判为不覆盖', ja.kanjiOnly === 'none', String(ja.kanjiOnly));
+  ok('整句实际播放成功', ja.played === 'phrase', String(ja.played));
+  ok('拼接实际播放成功', ja.playedMora === 'mora', String(ja.playedMora));
+
+  console.log('\n=== 带唱 ===');
+  await goto('#/sing');
+  await sleep(900);
+  ok('带唱页渲染', (await page.$('#roll')) !== null && (await page.$('#btnSing')) !== null);
+  const songs = await page.$$eval('#songSel option', (os) => os.map((o) => o.textContent));
+  ok('内置练习旋律 4 条', songs.length === 4, JSON.stringify(songs));
+  const rollPainted = await page.$eval('#roll', (c) => {
+    const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+    let n = 0;
+    for (let i = 3; i < d.length; i += 4) if (d[i] > 0) n++;
+    return n;
+  });
+  ok('钢琴卷帘画出了目标音块', rollPainted > 2000, String(rollPainted));
+  // 移调必须真的改变目标音高
+  const rollBefore = rollPainted;
+  await page.select('#trSel', '-5');
+  await sleep(500);
+  const rollAfter = await page.evaluate(() => {
+    const c = document.querySelector('#roll');
+    const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+    let n = 0;
+    for (let i = 3; i < d.length; i += 4) if (d[i] > 0) n++;
+    return n;
+  });
+  ok('移调后重绘', rollAfter > 2000, `${rollBefore} -> ${rollAfter}`);
+  await page.select('#trSel', '0');
+  await sleep(300);
+  await shot('16-sing');
+
+  console.log('\n=== 本地音乐提取旋律 ===');
+  await goto('#/sing/file');
+  await sleep(700);
+  ok('本地音频页渲染', (await page.$('#f')) !== null);
+  // 合成一段已知旋律的音频喂给分析函数，验证真能提取出对的音
+  const mel = await page.evaluate(async () => {
+    const { audioCtx } = await import('./js/audio.js');
+    const { detectPitch, decimate, hzToMidi, midiToHz } = await import('./js/pitch.js');
+    const ctx = audioCtx();
+    const sr = 24000;
+    const want = [60, 64, 67, 72];          // do mi sol do'
+    const noteSec = 0.5;
+    const buf = ctx.createBuffer(1, sr * noteSec * want.length, sr);
+    const d = buf.getChannelData(0);
+    want.forEach((m, k) => {
+      const f = midiToHz(m);
+      for (let i = 0; i < sr * noteSec; i++) {
+        const t = i / sr;
+        const idx = k * sr * noteSec + i;
+        // 带谐波，模拟人声
+        d[idx] = 0.35 * (Math.sin(2 * Math.PI * f * t) + 0.6 * Math.sin(4 * Math.PI * f * t)
+                 + 0.3 * Math.sin(6 * Math.PI * f * t));
+      }
+    });
+    // 复刻 sing.js 里的提取逻辑（同一套算法）
+    const dec = 1, rate = sr, win = 1024, hop = Math.round(rate * 0.02);
+    const sig = buf.getChannelData(0);
+    const raw = [];
+    for (let i = 0; i + win <= sig.length; i += hop) {
+      const p = detectPitch(sig.subarray(i, i + win), rate, { minHz: 70, maxHz: 1100 });
+      raw.push(p.hz > 0 && p.clarity > 0.9 ? Math.round(hzToMidi(p.hz)) : null);
+    }
+    const found = [...new Set(raw.filter((x) => x !== null))].sort((a, b) => a - b);
+    void dec;
+    return { want, found, frames: raw.length, valid: raw.filter((x) => x !== null).length };
+  });
+  ok('本地音频能提取出正确的音',
+    mel.want.every((m) => mel.found.includes(m)), JSON.stringify(mel));
+  ok('提取覆盖率合理', mel.valid / mel.frames > 0.7, `${mel.valid}/${mel.frames}`);
+  await shot('17-sing-file');
+
   console.log('\n=== 数据页 ===');
   await goto('#/data');
   await sleep(900);

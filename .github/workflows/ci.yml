@@ -107,7 +107,8 @@ jobs:
           set -e
           L=$(unzip -l android/build/study-hub.apk)
           for f in assets/index.html assets/js/app.js assets/js/native.js assets/js/ear-levels.js assets/js/translate.js \
-                   assets/js/views/translate.js assets/data/phrases.json \
+                   assets/js/views/translate.js assets/js/views/sing.js assets/js/jaspeech.js \
+                   assets/data/phrases.json assets/audio/manifest.json \
                    assets/data/kana.json assets/data/vocab.json assets/data/plan.json \
                    classes.dex AndroidManifest.xml; do
             echo "$L" | grep -q "$f" || { echo "::error::APK 缺少 $f"; exit 1; }

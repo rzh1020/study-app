@@ -3,6 +3,7 @@ import { setTitle } from '../app.js';
 import { asrStatus, asrStart, asrStop, speak, probeTts, ttsStop, isNative } from '../native.js';
 import { load, translate, categories, phrasesOf } from '../translate.js';
 import { importTSV } from '../store.js';
+import { speakJa, stopJa, coverage, loadManifest, stats as jaStats } from '../jaspeech.js';
 
 const DIRS = {
   cn2jp: { from: '中文', to: '日语', asrLang: 'zh-CN', ttsLang: 'ja-JP', ph: '中文，比如「这个多少钱」' },
@@ -31,6 +32,8 @@ export async function render(view) {
   const tts = { 'ja-JP': null, 'zh-CN': null };   // null = 还没探测出结果
   const cats = categories();
   let curCat = cats[0] ? cats[0].id : '';
+  await loadManifest();
+  const ja = await jaStats();
 
   view.innerHTML = `
     <div class="card tr-dir">
@@ -109,39 +112,44 @@ export async function render(view) {
   };
 
   // ---------- 朗读 ----------
-  async function doSpeak(text, lang) {
+  /**
+   * 朗读。日语走内置预渲染音频（系统没有日语引擎），中文走系统 TTS。
+   * 预渲染分两级：整句音频（短语库命中，音质最好）→ 假名音节拼接（任意假名文本）。
+   */
+  async function doSpeak(text, lang, kana) {
     if (!text) return;
+    stopJa();
     ttsStop();
+    if (lang.startsWith('ja')) {
+      const how = await speakJa(text, kana, speak);
+      if (how) { lastSpeakHow = how; return; }
+      toast('这句读不出来：不在内置语音里，且系统没有日语引擎', 5000);
+      return;
+    }
     if (speak(text, lang)) return;
-    // 走到这说明该语言真的没有合成语音
     tts[lang] = false;
     drawCaps();
-    drawOut();
-    toast(lang.startsWith('ja')
-      ? '这台设备没有日语语音，无法朗读日语。假名和罗马音照着念即可'
-      : '这台设备没有中文语音，无法朗读', 5000);
+    toast('这台设备没有中文语音，无法朗读', 4000);
   }
+  let lastSpeakHow = '';
 
   // ---------- 能力说明 ----------
   function drawCaps() {
     const y = (v) => v === null ? '<span class="dim">检测中…</span>'
       : v ? '<span style="color:var(--ok)">可用</span>' : '<span style="color:var(--bad)">不可用</span>';
     $('#capBox').innerHTML = `
-      <div class="tiny dim">本机语音能力（全部离线，不联网）</div>
+      <div class="tiny dim">本机能力（全部离线，App 不联网）</div>
       <div class="tr-cap">
         <span>打字翻译</span><span style="color:var(--ok)">可用</span>
-        <span>语音输入</span>${y(asr.available)}
-        <span>朗读日语</span>${y(tts['ja-JP'])}
+        <span>朗读日语</span><span style="color:var(--ok)">内置语音</span>
         <span>朗读中文</span>${y(tts['zh-CN'])}
+        <span>语音输入</span>${y(asr.available)}
       </div>
-      ${tts['ja-JP'] === false ? `<div class="tiny" style="color:var(--warn);margin-top:7px">
-        这台设备的系统语音引擎不支持日语，所以日语没法朗读。
-        译文下面的假名和罗马音就是发音，照着念。
-        想要日语朗读需要装一个支持日语的语音引擎，或在 App 里内置离线语音模型（会让安装包大很多）。
-      </div>` : ''}
-      ${!asr.available ? `<div class="tiny" style="color:var(--warn);margin-top:7px">
-        ${esc(asr.reason)}
-      </div>` : ''}`;
+      <div class="tiny dim" style="margin-top:7px">
+        日语朗读用的是 App 内置的预渲染语音（${ja.phrases} 条整句 + ${ja.mora} 个假名音节），
+        不依赖系统语音引擎 —— 这台设备的系统引擎不支持日语。
+      </div>
+      ${!asr.available ? `<div class="tiny" style="color:var(--warn);margin-top:7px">${esc(asr.reason)}</div>` : ''}`;
   }
 
   // ---------- 翻译 ----------
@@ -153,8 +161,9 @@ export async function render(view) {
     drawOut();
     // 只在该语言确实能朗读时才自动播，否则每次都弹一个失败提示很烦
     const lang = result.speakLang || DIRS[dir].ttsLang;
-    if (result.ok && result.level === 1 && result.speakText && tts[lang] === true) {
-      doSpeak(result.speakText, lang);
+    if (result.ok && result.level === 1 && result.speakText
+        && (lang.startsWith('ja') || tts[lang] === true)) {
+      doSpeak(result.speakText, lang, result.kana);
     }
   }
 
@@ -173,7 +182,9 @@ export async function render(view) {
     }
     const cls = r.grade === 'high' ? 'ok' : r.grade === 'mid' ? 'warn' : 'bad';
     const lang = r.speakLang || DIRS[dir].ttsLang;
-    const canSpeak = tts[lang] !== false;
+    const cov = lang.startsWith('ja') ? coverage(r.text, r.kana) : (tts[lang] === false ? 'none' : 'system');
+    const canSpeak = cov !== 'none';
+    const covLabel = cov === 'phrase' ? '🔊 朗读' : cov === 'mora' ? '🔊 朗读（逐音节）' : '🔊 朗读';
     out.innerHTML = `<div class="card">
       <div class="row spread mb">
         <span class="pill ${cls}">${esc(r.label)}</span>
@@ -185,13 +196,13 @@ export async function render(view) {
       <div class="tr-note ${cls}">${esc(r.note)}</div>
       ${r.level === 2 ? tokens(r) : ''}
       <div class="btn-row mt">
-        ${canSpeak ? '<button class="btn btn-pri" id="btnSpeak">🔊 朗读</button>'
-          : '<button class="btn" disabled title="本机无该语言语音">🔇 无法朗读</button>'}
+        ${canSpeak ? `<button class="btn btn-pri" id="btnSpeak">${covLabel}</button>`
+          : '<button class="btn" disabled title="不在内置语音覆盖内">🔇 读不出</button>'}
         <button class="btn btn-ghost" id="btnSave">存为卡片</button>
       </div>
     </div>`;
     const sp = $('#btnSpeak');
-    if (sp) sp.onclick = () => doSpeak(r.speakText || r.text, lang);
+    if (sp) sp.onclick = () => doSpeak(r.speakText || r.text, lang, r.kana);
     $('#btnSave').onclick = () => saveCard(r);
   }
 
@@ -237,7 +248,7 @@ export async function render(view) {
           <div class="tr-ph-jp">${esc(p.jp)}</div>
           <div class="tr-ph-rm">${esc(p.kana)} · ${esc(p.romaji)}</div>
         </div>
-        <span class="tr-ph-play">${tts['ja-JP'] === false ? '›' : '🔊'}</span>
+        <span class="tr-ph-play">🔊</span>
       </div>`).join('');
     $('#trPhrases').querySelectorAll('[data-ph]').forEach((el) => {
       el.onclick = () => {
@@ -251,7 +262,7 @@ export async function render(view) {
           speakText: p.jp, speakLang: 'ja-JP',
         };
         drawOut();
-        if (tts['ja-JP'] === true) doSpeak(p.jp, 'ja-JP');
+        doSpeak(p.jp, 'ja-JP', p.kana);
         $('#trOut').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       };
     });
@@ -273,5 +284,5 @@ export async function render(view) {
     if (result) drawOut();
   })();
 
-  return { destroy() { asrStop(); ttsStop(); } };
+  return { destroy() { asrStop(); ttsStop(); stopJa(); } };
 }

@@ -147,6 +147,11 @@ async function tuner(view, cfg) {
       <button class="btn btn-pri" id="btnStart">开启麦克风</button>
       <a class="btn btn-ghost" href="#/voice/range">音域测试</a>
     </div>
+    <a class="card mt" href="#/sing" style="display:flex;align-items:center;gap:12px;text-decoration:none;color:inherit;border-color:var(--purple)">
+      <div class="grow"><div class="tk-t">带唱练习</div>
+      <div class="tk-s">跟着目标音高唱，看自己的线对不对得上；也能从手机里的歌提取旋律</div></div>
+      <div class="dim">›</div>
+    </a>
   `;
 
   const update = bindTuner('tn', cfg);

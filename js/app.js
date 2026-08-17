@@ -12,10 +12,11 @@ const routes = {
   data: () => import('./views/data.js'),
   plan: () => import('./views/plan.js'),
   translate: () => import('./views/translate.js'),
+  sing: () => import('./views/sing.js'),
 };
 
 const TAB_OF = { home: 'home', jp: 'jp', review: 'jp', ear: 'ear', voice: 'voice',
-  data: 'data', plan: 'home', translate: 'translate' };
+  data: 'data', plan: 'home', translate: 'translate', sing: 'voice' };
 
 let current = null;
 

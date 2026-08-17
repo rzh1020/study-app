@@ -72,6 +72,7 @@ export async function render(view) {
     <div class="card">
       ${task('声', '引导练声', voiceMin ? `今天已练 ${voiceMin} 分钟` : '热身→气息→音阶→抠句', '#/voice/routine', voiceMin >= cfg.voiceDailyMin)}
       ${task('准', '音准实时反馈', '看着音分偏差唱，外部校正', '#/voice', false)}
+      ${task('唱', '带唱练习', '跟着目标音高唱，或用手机里的歌当素材', '#/sing', false)}
     </div>
 
     <div class="card tight">

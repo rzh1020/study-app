@@ -41,7 +41,7 @@ mkdir -p "$OUT/res" "$OUT/classes" "$OUT/dex" "$OUT/assets"
 
 # ---------- 1. 把 Web 应用打进 assets ----------
 echo "[1/7] 收集 Web 资源"
-for item in index.html check.html manifest.webmanifest sw.js css js data icons; do
+for item in index.html check.html manifest.webmanifest sw.js css js data icons audio; do
   cp -r "$ROOT/$item" "$OUT/assets/"
 done
 # 只保留 PWA 真正用到的图标，去掉源 SVG 之外的多余文件
@@ -51,7 +51,8 @@ ASSET_SIZE=$(du -sh "$OUT/assets" | cut -f1)
 echo "      $ASSET_COUNT 个文件, $ASSET_SIZE"
 
 # 自检：assets 里必须有这些，缺了 App 会白屏
-for must in index.html js/app.js js/native.js css/app.css data/kana.json data/vocab.json data/plan.json; do
+for must in index.html js/app.js js/native.js js/jaspeech.js css/app.css \
+            data/kana.json data/vocab.json data/plan.json data/phrases.json audio/manifest.json; do
   [ -f "$OUT/assets/$must" ] || { echo "!! assets 缺少 $must"; exit 1; }
 done
 

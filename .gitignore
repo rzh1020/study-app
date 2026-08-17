@@ -26,3 +26,6 @@ study-backup-*.json
 /tmp/
 *.log
 .data-src/
+
+# 语音渲染用的大模型（147MB Kokoro / sherpa AAR），只在电脑上用，产物才入库
+.data-src/sherpa/
