@@ -327,12 +327,21 @@ public class MainActivity extends Activity {
      * 注意 EXTRA_PREFER_OFFLINE 下若语言包没下载，回调是 ERROR_NETWORK
      * 而不是某个「离线不可用」的码，所以那两个码要映射成「去下载离线语音包」。
      */
-    private static String asrErrorText(int code) {
+    private static String asrErrorText(int code, boolean hasMic) {
         switch (code) {
             case SpeechRecognizer.ERROR_AUDIO: return "录音出错，请重试";
             case SpeechRecognizer.ERROR_CLIENT: return "识别客户端错误";
             case SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS:
-                return "没有麦克风权限，请在系统设置里授予录音权限";
+                // 这个码有两种完全不同的成因，不能一律说成「你没授权」：
+                // 1) 本应用确实没有 RECORD_AUDIO
+                // 2) 本应用有权限，但系统语音服务自己拿不到录音 AppOps
+                //    （实测小米 mibrain.speech 会这样：日志里出现
+                //     "AppOps: Operation not found: pkg=com.xiaomi.mibrain.speech op=RECORD_AUDIO"）
+                // 第 2 种是系统服务侧的问题，让用户去反复授权只会浪费时间。
+                return hasMic
+                        ? "系统语音服务无法录音（本应用已有麦克风权限，是系统语音服务侧的限制）。"
+                          + "可改用手动输入"
+                        : "本应用还没有麦克风权限，请在弹窗或系统设置里允许录音";
             case SpeechRecognizer.ERROR_NETWORK:
             case SpeechRecognizer.ERROR_NETWORK_TIMEOUT:
                 return "该语言缺少离线识别包。设置 → 语言和输入法 → 语音输入 → 离线语音识别，下载中文/日语";
@@ -353,7 +362,7 @@ public class MainActivity extends Activity {
 
         @Override public void onError(int code) {
             asrListening = false;
-            jsCall("__asrError", asrErrorText(code));
+            jsCall("__asrError", asrErrorText(code, hasMicPermission()));
         }
 
         @Override public void onPartialResults(Bundle b) {

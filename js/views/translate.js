@@ -1,14 +1,24 @@
 import { $, esc, toast } from '../ui.js';
 import { setTitle } from '../app.js';
-import { asrStatus, asrStart, asrStop, speak, ttsHasVoice, ttsStop, isNative } from '../native.js';
+import { asrStatus, asrStart, asrStop, speak, probeTts, ttsStop, isNative } from '../native.js';
 import { load, translate, categories, phrasesOf } from '../translate.js';
 import { importTSV } from '../store.js';
 
 const DIRS = {
-  cn2jp: { from: '中文', to: '日语', asrLang: 'zh-CN', ttsLang: 'ja-JP', ph: '说中文或在这里输入' },
-  jp2cn: { from: '日语', to: '中文', asrLang: 'ja-JP', ttsLang: 'zh-CN', ph: '说日语或输入日语（汉字/假名都行）' },
+  cn2jp: { from: '中文', to: '日语', asrLang: 'zh-CN', ttsLang: 'ja-JP', ph: '中文，比如「这个多少钱」' },
+  jp2cn: { from: '日语', to: '中文', asrLang: 'ja-JP', ttsLang: 'zh-CN', ph: '日语，汉字或假名都行' },
 };
 
+/**
+ * 翻译页。
+ *
+ * 这一版的设计前提是「先确认哪条路真的能用，再决定界面怎么摆」，
+ * 而不是把语音输入放在最显眼处然后让用户点了才发现不行。
+ * 实测（小米 15 Ultra / HyperOS）：
+ *   - 系统 TTS 只有小米引擎，**不支持日语**，中文可用
+ *   - 系统 ASR 是小米引擎，代理录音被 AppOps 挡住，返回权限错误
+ * 所以打字输入是唯一稳定通路，必须放主位；语音和朗读按实测能力决定是否呈现。
+ */
 export async function render(view) {
   setTitle('翻译');
   await load();
@@ -17,116 +27,134 @@ export async function render(view) {
   let listening = false;
   let result = null;
   let lastInput = '';
-
   const asr = asrStatus();
+  const tts = { 'ja-JP': null, 'zh-CN': null };   // null = 还没探测出结果
   const cats = categories();
   let curCat = cats[0] ? cats[0].id : '';
 
   view.innerHTML = `
     <div class="card tr-dir">
-      <button class="tr-side" id="sFrom"></button>
-      <button class="tr-swap" id="btnSwap" title="互换方向">⇄</button>
-      <button class="tr-side" id="sTo"></button>
+      <div class="tr-side" id="sFrom"></div>
+      <button class="tr-swap" id="btnSwap" title="互换">⇄</button>
+      <div class="tr-side" id="sTo"></div>
     </div>
 
     <div class="card">
-      <div id="asrBox"></div>
-      <textarea id="trIn" rows="2" style="min-height:64px"></textarea>
+      <textarea id="trIn" rows="2" style="min-height:66px"></textarea>
       <div class="btn-row mt">
         <button class="btn btn-pri" id="btnGo">翻译</button>
+        <button class="btn btn-ghost" id="btnMic" title="语音输入">🎤</button>
         <button class="btn btn-ghost" id="btnClear">清空</button>
       </div>
+      <div class="tiny dim" id="micHint" style="margin-top:8px"></div>
     </div>
 
     <div id="trOut"></div>
 
     <div class="card">
       <h3>常用短语</h3>
-      <div class="tiny dim mb">旅游时这里比语音识别更快更可靠。点一下就朗读。</div>
       <div class="tr-cats" id="trCats"></div>
       <div id="trPhrases"></div>
     </div>
 
-    <div class="card tight">
-      <div class="tiny dim">完全离线：短语库和词库都在本机，不联网。
-      因此不做通用机翻 —— 结果会标出是「短语库」还是「逐词查询」，后者只能当参考。</div>
-    </div>
+    <div class="card tight" id="capBox"></div>
   `;
 
-  // ---- 方向 ----
+  // ---------- 方向 ----------
   function drawDir() {
-    const d = DIRS[dir];
-    $('#sFrom').textContent = d.from;
-    $('#sTo').textContent = d.to;
-    $('#trIn').placeholder = d.ph;
+    $('#sFrom').textContent = DIRS[dir].from;
+    $('#sTo').textContent = DIRS[dir].to;
+    $('#trIn').placeholder = DIRS[dir].ph;
   }
   $('#btnSwap').onclick = () => {
     dir = dir === 'cn2jp' ? 'jp2cn' : 'cn2jp';
     drawDir();
-    drawAsr();
+    drawMicHint();
     if ($('#trIn').value.trim()) run();
   };
 
-  // ---- 语音识别区 ----
-  function drawAsr() {
-    const box = $('#asrBox');
+  // ---------- 语音输入 ----------
+  function drawMicHint() {
+    const btn = $('#btnMic');
+    const hint = $('#micHint');
     if (!asr.available) {
-      box.innerHTML = `
-        <div class="tr-warn">
-          <b>语音输入不可用</b>
-          <div class="tiny dim" style="margin-top:3px">${esc(asr.reason)}${
-            isNative ? '' : '（装成 APK 后用系统离线识别）'}<br>下面可以直接打字翻译。</div>
-        </div>`;
+      btn.disabled = true;
+      hint.innerHTML = `语音输入不可用：${esc(asr.reason)}。打字翻译不受影响。`;
       return;
     }
-    box.innerHTML = `
-      <button class="tr-mic ${listening ? 'on' : ''}" id="btnMic">
-        <span class="tr-mic-ic">${listening ? '■' : '🎤'}</span>
-        <span class="tr-mic-t">${listening ? '正在听… 点击结束' : `按一下，说${DIRS[dir].from}`}</span>
-      </button>
-      <div class="tiny dim center" id="asrHint" style="margin:6px 0 10px">${
-        asr.offline ? '优先使用系统离线识别' : esc(asr.reason)}</div>`;
-    $('#btnMic').onclick = toggleMic;
+    btn.disabled = false;
+    btn.textContent = listening ? '■ 停止' : '🎤 说话';
+    btn.classList.toggle('btn-bad', listening);
+    hint.textContent = listening
+      ? `正在听${DIRS[dir].from}…`
+      : `点麦克风说${DIRS[dir].from}${asr.offline ? '（系统离线识别）' : ''}`;
   }
 
-  function toggleMic() {
-    if (listening) { asrStop(); listening = false; drawAsr(); return; }
+  $('#btnMic').onclick = () => {
+    if (listening) { asrStop(); listening = false; drawMicHint(); return; }
     listening = true;
-    drawAsr();
+    drawMicHint();
     const ok = asrStart(DIRS[dir].asrLang, {
-      onPartial: (t) => { $('#trIn').value = t; const h = $('#asrHint'); if (h) h.textContent = '听到：' + t; },
-      onResult: (t) => {
-        listening = false;
-        drawAsr();
-        $('#trIn').value = t;
-        run();
-      },
+      onPartial: (t) => { $('#trIn').value = t; $('#micHint').textContent = '听到：' + t; },
+      onResult: (t) => { listening = false; drawMicHint(); $('#trIn').value = t; run(); },
       onError: (e) => {
         listening = false;
-        drawAsr();
-        toast('识别失败：' + e, 4000);
+        drawMicHint();
+        // 识别失败时把提示留在页面上而不是一闪而过的 toast ——
+        // 这类失败往往是系统侧的，用户需要看清原因才知道该不该重试
+        $('#micHint').innerHTML = `<span style="color:var(--bad)">${esc(e)}</span>`;
       },
     });
-    if (!ok) { listening = false; drawAsr(); }
+    if (!ok) { listening = false; drawMicHint(); }
+  };
+
+  // ---------- 朗读 ----------
+  async function doSpeak(text, lang) {
+    if (!text) return;
+    ttsStop();
+    if (speak(text, lang)) return;
+    // 走到这说明该语言真的没有合成语音
+    tts[lang] = false;
+    drawCaps();
+    drawOut();
+    toast(lang.startsWith('ja')
+      ? '这台设备没有日语语音，无法朗读日语。假名和罗马音照着念即可'
+      : '这台设备没有中文语音，无法朗读', 5000);
   }
 
-  // ---- 翻译 ----
+  // ---------- 能力说明 ----------
+  function drawCaps() {
+    const y = (v) => v === null ? '<span class="dim">检测中…</span>'
+      : v ? '<span style="color:var(--ok)">可用</span>' : '<span style="color:var(--bad)">不可用</span>';
+    $('#capBox').innerHTML = `
+      <div class="tiny dim">本机语音能力（全部离线，不联网）</div>
+      <div class="tr-cap">
+        <span>打字翻译</span><span style="color:var(--ok)">可用</span>
+        <span>语音输入</span>${y(asr.available)}
+        <span>朗读日语</span>${y(tts['ja-JP'])}
+        <span>朗读中文</span>${y(tts['zh-CN'])}
+      </div>
+      ${tts['ja-JP'] === false ? `<div class="tiny" style="color:var(--warn);margin-top:7px">
+        这台设备的系统语音引擎不支持日语，所以日语没法朗读。
+        译文下面的假名和罗马音就是发音，照着念。
+        想要日语朗读需要装一个支持日语的语音引擎，或在 App 里内置离线语音模型（会让安装包大很多）。
+      </div>` : ''}
+      ${!asr.available ? `<div class="tiny" style="color:var(--warn);margin-top:7px">
+        ${esc(asr.reason)}
+      </div>` : ''}`;
+  }
+
+  // ---------- 翻译 ----------
   function run() {
     const text = $('#trIn').value.trim();
-    if (!text) { toast('先输入或说一句话'); return; }
+    if (!text) { toast('先输入一句话'); return; }
     lastInput = text;
     result = translate(text, dir);
     drawOut();
-    // 短语库命中时自动朗读：旅游场景下这一步是刚需，省一次点击
-    if (result.ok && result.level === 1 && result.speakText) doSpeak(result.speakText, result.speakLang);
-  }
-
-  function doSpeak(text, lang) {
-    ttsStop();
-    if (!speak(text, lang)) {
-      toast(ttsHasVoice(lang)
-        ? '朗读失败，再试一次'
-        : `系统缺少${lang.startsWith('ja') ? '日语' : '中文'}语音包：设置 → 语言和输入法 → 文字转语音 → 安装语音数据`, 6000);
+    // 只在该语言确实能朗读时才自动播，否则每次都弹一个失败提示很烦
+    const lang = result.speakLang || DIRS[dir].ttsLang;
+    if (result.ok && result.level === 1 && result.speakText && tts[lang] === true) {
+      doSpeak(result.speakText, lang);
     }
   }
 
@@ -135,56 +163,55 @@ export async function render(view) {
     const out = $('#trOut');
     if (!r) { out.innerHTML = ''; return; }
     if (!r.ok) {
-      out.innerHTML = `
-        <div class="card">
-          <span class="pill bad">${esc(r.label || '没有结果')}</span>
-          <div class="small muted mt">${esc(r.note || '')}</div>
-          ${r.near ? `<div class="small mt">最接近的收录句：<b>${esc(r.near)}</b></div>` : ''}
-          ${r.suggestions ? `<div class="mt">${r.suggestions.map((x) =>
-            `<div class="tiny dim" style="padding:3px 0">· ${esc(x)}</div>`).join('')}</div>` : ''}
-        </div>`;
+      out.innerHTML = `<div class="card">
+        <span class="pill bad">${esc(r.label || '没有结果')}</span>
+        <div class="small muted mt">${esc(r.note || '')}</div>
+        ${r.near ? `<div class="small mt">最接近的收录句：<b>${esc(r.near)}</b></div>` : ''}
+        ${(r.suggestions || []).map((x) => `<div class="tiny dim" style="padding:3px 0">· ${esc(x)}</div>`).join('')}
+      </div>`;
       return;
     }
-    const gradeCls = r.grade === 'high' ? 'ok' : r.grade === 'mid' ? 'warn' : 'bad';
-    out.innerHTML = `
-      <div class="card">
-        <div class="row spread mb">
-          <span class="pill ${gradeCls}">${esc(r.label)}</span>
-          <span class="tiny dim">${esc(lastInput)}</span>
-        </div>
-        <div class="tr-main">${esc(r.text)}</div>
-        ${r.kana && r.kana !== r.text ? `<div class="tr-kana">${esc(r.kana)}</div>` : ''}
-        ${r.romaji ? `<div class="tr-romaji">${esc(r.romaji)}</div>` : ''}
-        <div class="tr-note ${gradeCls}">${esc(r.note)}</div>
-        ${r.level === 2 ? tokenTable(r) : ''}
-        <div class="btn-row mt">
-          <button class="btn btn-pri" id="btnSpeak">🔊 朗读</button>
-          <button class="btn btn-ghost" id="btnSave">存为卡片</button>
-        </div>
-      </div>`;
-    $('#btnSpeak').onclick = () => doSpeak(r.speakText || r.text, r.speakLang || DIRS[dir].ttsLang);
+    const cls = r.grade === 'high' ? 'ok' : r.grade === 'mid' ? 'warn' : 'bad';
+    const lang = r.speakLang || DIRS[dir].ttsLang;
+    const canSpeak = tts[lang] !== false;
+    out.innerHTML = `<div class="card">
+      <div class="row spread mb">
+        <span class="pill ${cls}">${esc(r.label)}</span>
+        <span class="tiny dim">${esc(lastInput)}</span>
+      </div>
+      <div class="tr-main">${esc(r.text)}</div>
+      ${r.kana && r.kana !== r.text ? `<div class="tr-kana">${esc(r.kana)}</div>` : ''}
+      ${r.romaji ? `<div class="tr-romaji">${esc(r.romaji)}</div>` : ''}
+      <div class="tr-note ${cls}">${esc(r.note)}</div>
+      ${r.level === 2 ? tokens(r) : ''}
+      <div class="btn-row mt">
+        ${canSpeak ? '<button class="btn btn-pri" id="btnSpeak">🔊 朗读</button>'
+          : '<button class="btn" disabled title="本机无该语言语音">🔇 无法朗读</button>'}
+        <button class="btn btn-ghost" id="btnSave">存为卡片</button>
+      </div>
+    </div>`;
+    const sp = $('#btnSpeak');
+    if (sp) sp.onclick = () => doSpeak(r.speakText || r.text, lang);
     $('#btnSave').onclick = () => saveCard(r);
   }
 
-  function tokenTable(r) {
+  function tokens(r) {
     return `<div class="tr-tokens">
       ${r.tokens.map((t) => t.hit
         ? `<span class="tr-tok"><b>${esc(dir === 'cn2jp' ? t.hit.jp : t.hit.cn)}</b><i>${esc(t.surface)}</i></span>`
         : `<span class="tr-tok miss"><b>?</b><i>${esc(t.surface)}</i></span>`).join('')}
-      <div class="tiny dim" style="margin-top:6px">命中 ${r.hitCount} / 未收录 ${r.missCount}</div>
+      <div class="tiny dim" style="margin-top:6px;width:100%">命中 ${r.hitCount} · 未收录 ${r.missCount}</div>
     </div>`;
   }
 
   async function saveCard(r) {
     const jp = dir === 'cn2jp' ? r.text : lastInput;
     const cn = dir === 'cn2jp' ? lastInput : r.text;
-    if (!jp || !cn) return toast('内容不完整，存不了');
+    if (!jp || !cn) return toast('内容不完整');
     try {
       const res = await importTSV(`${jp}\t${cn}\t翻译页保存`, 'vocab_jp2cn');
-      toast(res.added ? '已存入日语卡片，之后会出现在复习里' : '这句已经存过了');
-    } catch (e) {
-      toast('保存失败：' + e.message);
-    }
+      toast(res.added ? '已存入日语卡片' : '这句存过了');
+    } catch (e) { toast('保存失败：' + e.message); }
   }
 
   $('#btnGo').onclick = run;
@@ -193,7 +220,7 @@ export async function render(view) {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); run(); }
   };
 
-  // ---- 短语库 ----
+  // ---------- 短语库 ----------
   function drawCats() {
     $('#trCats').innerHTML = cats.map((c) =>
       `<button class="tr-cat ${c.id === curCat ? 'on' : ''}" data-cat="${esc(c.id)}">${esc(c.cn)}</button>`).join('');
@@ -208,37 +235,43 @@ export async function render(view) {
         <div class="grow">
           <div class="tr-ph-cn">${esc(p.cn)}</div>
           <div class="tr-ph-jp">${esc(p.jp)}</div>
-          <div class="tr-ph-rm">${esc(p.romaji)}</div>
+          <div class="tr-ph-rm">${esc(p.kana)} · ${esc(p.romaji)}</div>
         </div>
-        <span class="tr-ph-play">🔊</span>
+        <span class="tr-ph-play">${tts['ja-JP'] === false ? '›' : '🔊'}</span>
       </div>`).join('');
     $('#trPhrases').querySelectorAll('[data-ph]').forEach((el) => {
       el.onclick = () => {
         const p = list[+el.dataset.ph];
-        doSpeak(p.jp, 'ja-JP');
-        // 点短语也把它送进结果区，方便看假名和存卡片
         lastInput = p.cn;
         dir = 'cn2jp';
         drawDir();
         result = {
-          ok: true, level: 1, source: 'phrase', label: '短语库 · 精确匹配', grade: 'high',
+          ok: true, level: 1, label: '短语库 · 精确匹配', grade: 'high',
           note: '预置短语，可以直接说', text: p.jp, kana: p.kana, romaji: p.romaji,
           speakText: p.jp, speakLang: 'ja-JP',
         };
         drawOut();
+        if (tts['ja-JP'] === true) doSpeak(p.jp, 'ja-JP');
+        $('#trOut').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       };
     });
   }
 
   drawDir();
-  drawAsr();
+  drawMicHint();
+  drawCaps();
   drawCats();
   drawPhrases();
 
-  return {
-    destroy() {
-      asrStop();
-      ttsStop();
-    },
-  };
+  // 异步探测真实 TTS 能力（原生侧 init 是异步的，早问会得到不可信的值）
+  (async () => {
+    tts['zh-CN'] = await probeTts('zh-CN');
+    drawCaps();
+    tts['ja-JP'] = await probeTts('ja-JP', 800);
+    drawCaps();
+    drawPhrases();
+    if (result) drawOut();
+  })();
+
+  return { destroy() { asrStop(); ttsStop(); } };
 }

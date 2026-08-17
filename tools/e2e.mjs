@@ -238,22 +238,34 @@ async function main() {
 
   console.log('\n=== 练耳 ===');
   await goto('#/ear');
-  // 未解锁的级渲染成 disabled 按钮而不是链接（渐进解锁），所以按「为什么练」计数
-  const ladderText = await page.$eval('#view', (e) => e.innerText);
-  ok('练耳阶梯列出 9 级', (ladderText.match(/为什么练/g) || []).length === 9,
-    String((ladderText.match(/为什么练/g) || []).length));
-  ok('只有第一级解锁（渐进解锁生效）',
-    (await page.$$('#view a[href^="#/ear/"]')).length === 2,
-    String((await page.$$('#view a[href^="#/ear/"]')).length));
-  ok('有未解锁的锁定按钮', (await page.$$('#view button[disabled]')).length >= 7,
-    String((await page.$$('#view button[disabled]')).length));
-  await shot('06-ear-menu');
+  // 阶梯改成一行一级的紧凑列表：解锁的是 <a.ear-row>，未解锁的是 <div.ear-row.locked>
+  const ladderTxt = await page.$eval('#view', (e) => e.innerText);
+  ok('练耳阶梯列出 9 级', (await page.$$('#view .ear-row')).length === 9,
+    String((await page.$$('#view .ear-row')).length));
+  ok('只有第一级解锁（渐进解锁生效）', (await page.$$('#view a.ear-row')).length === 1,
+    String((await page.$$('#view a.ear-row')).length));
+  ok('未解锁的级是锁定态', (await page.$$('#view .ear-row.locked')).length === 8,
+    String((await page.$$('#view .ear-row.locked')).length));
+  ok('顶部有「接着练」入口', (await page.$('#view .ear-hero')) !== null);
+  ok('菜单不再有说教文案', !/为什么练/.test(ladderTxt), ladderTxt.slice(0, 40).replace(/\n/g, '|'));
 
   for (const mode of ['highlow', 'same', 'contour', 'tri', 'degree', 'chord', 'interval', 'melody', 'rhythm']) {
     await goto(`#/ear/${mode}`);
-    await sleep(600);
-    // 第一次进某一级会自动开「熟悉模式」（直接显示答案、不计分），
-    // 这里关掉它以测试真正的计分路径
+    await sleep(700);
+    // 第一次进某一级先出示范页：零基础的人对「音高」「音程」没有概念，
+    // 直接出题等于在听不懂的选项里瞎猜
+    const demoBtns = await page.$$('#demos [data-d]');
+    ok(`${mode} 首次进入先给示范`, demoBtns.length >= 1, `${demoBtns.length} 个示范`);
+    if (demoBtns.length) {
+      await demoBtns[0].click();
+      await sleep(900);
+      await page.click('#btnStart');
+      await sleep(800);
+    }
+    // 第二次进入应直接出题（示范已记住）
+    await goto(`#/ear/${mode}`);
+    await sleep(700);
+    ok(`${mode} 看过示范后直接出题`, (await page.$('#opts')) !== null && (await page.$('#demos')) === null);
     const wasLearn = await page.$eval('#cbLearn', (e) => e.checked);
     if (wasLearn) {
       await page.click('#cbLearn');
@@ -281,6 +293,10 @@ async function main() {
   // 熟悉模式的作答不计分不落库；第一次进某一级会自动开熟悉模式，
   // 所以这里只断言「有记录」而不是精确条数
   ok('练耳记录已落库（9 级各 1 题）', earLog === 9, String(earLog));
+  await goto('#/ear/highlow/demo');
+  await sleep(700);
+  ok('答题页可回看示范', (await page.$$('#demos [data-d]')).length >= 2,
+    String((await page.$$('#demos [data-d]')).length));
 
   // 自适应难度：「同异」级的半音差应随表现变化，而不是恒定
   const adaptive = await page.evaluate(async () => {
@@ -458,9 +474,15 @@ async function main() {
   ok('翻译页渲染', (await page.$('#trIn')) !== null && (await page.$('#btnSwap')) !== null);
   const trTxt = await page.$eval('#view', (e) => e.innerText);
   ok('方向显示中文→日语', /中文/.test(trTxt) && /日语/.test(trTxt));
-  // 浏览器里 Web Speech API 通常不可用，必须优雅降级并给出可行动提示
-  const asrBox = await page.$eval('#asrBox', (e) => e.innerText);
-  ok('语音不可用时给出可行动提示', /打字|语音输入不可用|说中文/.test(asrBox), asrBox.slice(0, 50).replace(/\n/g, '|'));
+  // 打字输入是唯一稳定通路，必须在主位；语音不可用时要说清楚且不挡路
+  const micHint = await page.$eval('#micHint', (e) => e.innerText);
+  ok('语音状态有明确说明', micHint.trim().length > 0, micHint.slice(0, 60).replace(/\n/g, '|'));
+  ok('语音不可用时不影响打字', (await page.$eval('#btnGo', (e) => e.disabled)) === false);
+  // 能力表：如实列出本机哪条路能用，避免点了才发现不行
+  await sleep(2600);
+  const capTxt = await page.$eval('#capBox', (e) => e.innerText);
+  ok('列出本机语音能力', /打字翻译/.test(capTxt) && /朗读日语/.test(capTxt), capTxt.slice(0, 70).replace(/\n/g, '|'));
+  ok('能力表不停留在「检测中」', !/检测中/.test(capTxt.split('朗读中文')[1] || ''), capTxt.replace(/\n/g, '|'));
 
   // 第 1 层：短语库精确匹配
   await page.$eval('#trIn', (e) => { e.value = '这个多少钱'; });

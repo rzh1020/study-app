@@ -2,7 +2,7 @@ import { $, esc, toast } from '../ui.js';
 import { setTitle } from '../app.js';
 import { audioCtx, playNote, playSequence, playChord, click, sleep } from '../audio.js';
 import { noteName } from '../pitch.js';
-import { db, dayStart } from '../db.js';
+import { db, dayStart, metaGet, metaSet } from '../db.js';
 import { getConfig } from '../store.js';
 import { LEVELS, LEVEL_BY_ID, FIXED_ROOT, UNLOCK, levelProgress, suggestLevel, nextSameGap } from '../ear-levels.js';
 
@@ -54,7 +54,11 @@ export async function render(view, { args }) {
   const cfg = await getConfig();
   const id = args[0];
   if (!id || !LEVEL_BY_ID[id]) return menu(view, cfg);
-  return quiz(view, LEVEL_BY_ID[id], cfg);
+  const level = LEVEL_BY_ID[id];
+  const seen = new Set((await metaGet('earDemoSeen', [])) || []);
+  const wantDemo = args[1] === 'demo' || !seen.has(id);
+  if (wantDemo && (level.demos || []).length) return demoScreen(view, level, cfg);
+  return quiz(view, level, cfg);
 }
 
 // ---------------- 菜单：课程阶梯 ----------------
@@ -67,68 +71,123 @@ async function menu(view, cfg) {
   const next = suggestLevel(prog);
   const todayOk = today.filter((r) => r.correct).length;
 
-  const card = (l) => {
+  const row = (l) => {
     const p = prog[l.id];
     const isNext = l.id === next;
-    const pill = !p.unlocked ? '<span class="pill dim">未解锁</span>'
-      : p.passed ? '<span class="pill ok">已通关</span>'
+    const badge = !p.unlocked ? '<span class="ear-lock">🔒</span>'
+      : p.passed ? '<span class="pill ok">✓</span>'
       : p.acc !== null ? `<span class="pill ${p.acc >= UNLOCK.acc ? 'ok' : p.acc >= 0.6 ? 'warn' : 'bad'}">${Math.round(p.acc * 100)}%</span>`
-      : '<span class="pill acc">未开始</span>';
-    return `
-    <div class="card" style="${isNext ? 'border-color:var(--acc)' : p.unlocked ? '' : 'opacity:.55'}">
-      <div class="row spread mb">
-        <div class="grow">
-          <div class="row" style="gap:6px">
-            <b>${esc(l.name)}</b>${pill}
-            ${isNext ? '<span class="pill acc">建议练这个</span>' : ''}
-          </div>
-          <div class="tiny dim">${esc(l.desc)}</div>
-        </div>
-        ${p.unlocked
-          ? `<a class="btn btn-sm ${isNext ? 'btn-pri' : ''}" href="#/ear/${l.id}">进入</a>`
-          : '<button class="btn btn-sm" disabled>🔒</button>'}
-      </div>
-      <div class="tiny" style="color:var(--fg2)">为什么练：${esc(l.why)}</div>
-      ${p.unlocked && !p.passed
-        ? `<div class="bar mt"><i style="width:${Math.min((p.recentN / UNLOCK.window) * 100, 100)}%"></i></div>
-           <div class="tiny dim" style="margin-top:4px">通关条件：最近 ${UNLOCK.window} 题正确率 ≥ ${Math.round(UNLOCK.acc * 100)}%（当前 ${p.recentN}/${UNLOCK.window} 题）· 累计 ${p.total} 题</div>`
-        : p.total ? `<div class="tiny dim mt">累计 ${p.total} 题</div>` : ''}
-    </div>`;
+      : '';
+    const inner = `
+      <span class="ear-n">${esc(l.name.slice(0, 1))}</span>
+      <span class="ear-t">
+        <b>${esc(l.name.slice(1).trim())}</b>
+        <i>${esc(l.how || l.desc)}</i>
+      </span>
+      ${badge}
+      ${p.unlocked ? '<span class="ear-go">›</span>' : ''}`;
+    return p.unlocked
+      ? `<a class="ear-row ${isNext ? 'next' : ''} ${p.passed ? 'done' : ''}" href="#/ear/${l.id}">${inner}</a>`
+      : `<div class="ear-row locked">${inner}</div>`;
   };
 
   view.innerHTML = `
-    <div class="card">
-      <div class="row spread">
-        <div><div class="tk-t">今天 ${today.length} / ${cfg.earDailyTarget} 题</div>
-        <div class="tk-s">正确率 ${today.length ? Math.round((todayOk / today.length) * 100) : 0}%</div></div>
-        <div class="pill ${today.length >= cfg.earDailyTarget ? 'ok' : 'acc'}">${today.length >= cfg.earDailyTarget ? '达标' : '进行中'}</div>
+    <a class="card ear-hero" href="#/ear/${next}">
+      <div class="ear-hero-l">
+        <div class="tiny dim">接着练</div>
+        <div class="ear-hero-t">${esc(LEVEL_BY_ID[next].name)}</div>
+        <div class="tiny dim">${esc(LEVEL_BY_ID[next].how || '')}</div>
       </div>
-      <div class="bar mt"><i style="width:${Math.min((today.length / cfg.earDailyTarget) * 100, 100)}%"></i></div>
-    </div>
-
-    <div class="card" style="border-color:rgba(91,140,255,.4);background:rgba(91,140,255,.06)">
-      <h3 style="color:var(--acc)">零基础从①开始，不要跳</h3>
-      <div class="small muted">前四级不需要任何乐理知识，主音固定在 C4。
-      每一级都有「熟悉模式」——先听声音并直接看答案，可以无限重听，等听感建立了再测试。
-      连续正确率达标才解锁下一级：练够不着的难度只会变成乱猜，乱猜不产生学习。</div>
-      <a class="btn btn-pri btn-block mt" href="#/ear/${next}">从${esc(LEVEL_BY_ID[next].name)}开始</a>
-    </div>
-
-    <div class="sec-title">入门（不需要乐理基础）</div>
-    ${LEVELS.filter((l) => l.tier === '入门').map(card).join('')}
-    <div class="sec-title">进阶</div>
-    ${LEVELS.filter((l) => l.tier === '进阶').map(card).join('')}
+      <div class="ear-hero-r">▶</div>
+    </a>
 
     <div class="card tight">
-      <div class="tiny dim">戴耳机效果更好。手机扬声器低频缺失，会让低音区的判断变难。</div>
+      <div class="row spread">
+        <span class="small">今天 <b>${today.length}</b> / ${cfg.earDailyTarget} 题</span>
+        <span class="small muted">正确率 ${today.length ? Math.round((todayOk / today.length) * 100) : 0}%</span>
+      </div>
+      <div class="bar" style="margin-top:7px"><i style="width:${Math.min((today.length / cfg.earDailyTarget) * 100, 100)}%"></i></div>
+    </div>
+
+    <div class="sec-title">入门</div>
+    <div class="ear-list">${LEVELS.filter((l) => l.tier === '入门').map(row).join('')}</div>
+    <div class="sec-title">进阶</div>
+    <div class="ear-list">${LEVELS.filter((l) => l.tier === '进阶').map(row).join('')}</div>
+    <div class="card tight">
+      <div class="tiny dim">戴耳机。手机扬声器低频缺失，低音区会判断不准。</div>
     </div>
   `;
 }
 
 // ---------------- 出题 ----------------
 
-function quiz(view, level, cfg) {
+/**
+ * 示范环节。零基础的人对「音高」「音程」这些词没有概念，
+ * 直接出题等于让他在两个听不懂的选项里瞎猜。
+ * 所以进入每一级先听示范：每个选项对应的声音长什么样，可以无限重听。
+ * 听过一次后记住（存 meta），之后进这一级直接出题，但仍可随时回看示范。
+ */
+async function demoScreen(view, level, cfg) {
   setTitle(level.name, '<a class="pill" href="#/ear">阶梯</a>');
+  const a4 = cfg.a4;
+  view.innerHTML = `
+    <div class="card">
+      <h3>先听一遍：${esc(level.how || level.desc)}</h3>
+      <div class="small muted">下面每个按钮对应一种情况。挨个点着听，把声音和名字对上，
+      再开始答题。答题时还能随时回来重听。</div>
+    </div>
+    <div class="card">
+      <div class="ear-demos" id="demos">
+        ${(level.demos || []).map((d, i) =>
+          `<button class="ear-demo" data-d="${i}">
+             <span class="ear-demo-n">${i + 1}</span>
+             <span class="ear-demo-t"><b>${esc(d.label)}</b>${d.say ? `<i>${esc(d.say)}</i>` : ''}</span>
+             <span class="ear-demo-p">▶</span>
+           </button>`).join('')}
+      </div>
+      <div class="tiny dim mt" id="demoTip">戴耳机效果更好。</div>
+    </div>
+    <button class="btn btn-pri btn-block" id="btnStart">听懂了，开始答题</button>
+    <div class="tiny dim center mt">第一次不用求全对，答错会自动重播正确的声音。</div>
+  `;
+
+  let playing = false;
+  async function playDemo(d, btn) {
+    if (playing) return;
+    playing = true;
+    btn.classList.add('on');
+    try {
+      audioCtx();
+      if (d.chord) await playChord(d.chord, 1.5, { a4 });
+      else if (d.beats) {
+        const beat = 60 / 92;
+        click(true); await sleep(beat * 1000);
+        click(); await sleep(beat * 1000);
+        for (const b of d.beats) { if (b > 0) click(false); await sleep(Math.abs(b) * beat * 1000); }
+      } else if (d.seq) {
+        await playSequence(d.seq, d.seq.length > 3 ? 0.4 : 0.6, 0.12, { a4 });
+      }
+    } finally {
+      btn.classList.remove('on');
+      playing = false;
+    }
+  }
+
+  $('#demos').querySelectorAll('[data-d]').forEach((b) => {
+    b.onclick = () => playDemo(level.demos[+b.dataset.d], b);
+  });
+  $('#btnStart').onclick = async () => {
+    const seen = new Set((await metaGet('earDemoSeen', [])) || []);
+    seen.add(level.id);
+    await metaSet('earDemoSeen', [...seen]);
+    quiz(view, level, cfg);
+  };
+  return { destroy() {} };
+}
+
+function quiz(view, level, cfg) {
+  setTitle(level.name, `<a class="pill" href="#/ear/${level.id}/demo">示范</a>
+    <a class="pill" href="#/ear">阶梯</a>`);
   const a4 = cfg.a4;
   let q = null, answered = false, n = 0, ok = 0, destroyed = false;
   let learnMode = false;      // 熟悉模式：直接显示答案

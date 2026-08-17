@@ -201,6 +201,27 @@ export function speak(text, lang = 'ja-JP') {
   return true;
 }
 
+/**
+ * 探测某语言实际能不能朗读。
+ *
+ * 不能只看 ttsHasVoice()：原生侧在 TTS 异步 init 完成前会乐观返回 true
+ * （否则会误报「缺语音包」），所以刚进页面时它的值不可信。
+ * 这里等待 init 落定后再问，拿到的才是真值。
+ */
+export async function probeTts(lang, waitMs = 2600) {
+  if (!isNative) {
+    // 浏览器：语音列表可能异步加载，等一轮再看
+    if (!('speechSynthesis' in window)) return false;
+    if (!speechSynthesis.getVoices().length) await new Promise((r) => setTimeout(r, 600));
+    return ttsHasVoice(lang);
+  }
+  if (typeof B.ttsSpeak !== 'function') return false;
+  // 触发 ensureTts() 让引擎开始初始化，再等它落定
+  B.ttsSpeak('', lang);
+  await new Promise((r) => setTimeout(r, waitMs));
+  return ttsHasVoice(lang);
+}
+
 /** 某语言是否有可用的合成语音 */
 export function ttsHasVoice(lang = 'ja-JP') {
   if (isNative && typeof B.ttsHasVoice === 'function') return !!B.ttsHasVoice(lang);

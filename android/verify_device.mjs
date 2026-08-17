@@ -168,6 +168,13 @@ ok('复习记录写入本机', revCount >= 4, `${revCount} 条`);
 
 console.log('\n=== 练耳（Web Audio 无手势播放）===');
 await goto('#/ear/highlow');
+await sleep(700);
+// 首次进入某一级会先出示范页（零基础需要先听懂概念），跳过它进入答题
+if ((await page.$$('#demos [data-d]')).length) {
+  ok('练耳首次进入先给示范', true);
+  await page.click('#btnStart');
+  await sleep(900);
+}
 await sleep(1000);
 const opts = await page.$$('#opts button');
 ok('出题并渲染选项', opts.length >= 2, `${opts.length}`);
@@ -263,12 +270,25 @@ console.log('\n=== 翻译（真机离线）===');
 await goto('#/translate');
 await sleep(1200);
 ok('翻译页渲染', (await page.$('#trIn')) !== null);
+// 必须用 probeTts 而不是 ttsHasVoice：后者在原生 TTS 异步 init 完成前会
+// 乐观返回 true（避免误报缺语音包），拿它当验证结论等于自己骗自己 ——
+// 上一版就因此报告「日语=true」，而实际设备上根本没有日语合成。
 const spx = await page.evaluate(async () => {
-  const { asrStatus, ttsHasVoice } = await import('./js/native.js');
-  return { asr: asrStatus(), ja: ttsHasVoice('ja-JP'), zh: ttsHasVoice('zh-CN') };
+  const { asrStatus, probeTts } = await import('./js/native.js');
+  const zh = await probeTts('zh-CN');
+  const ja = await probeTts('ja-JP', 900);
+  return { asr: asrStatus(), ja, zh };
 });
 console.log(`  INFO  语音识别 available=${spx.asr.available} offline=${spx.asr.offline} : ${spx.asr.reason}`);
-console.log(`  INFO  TTS 语音包 日语=${spx.ja} 中文=${spx.zh}`);
+console.log(`  INFO  TTS 真实能力（probeTts）日语=${spx.ja} 中文=${spx.zh}`);
+ok('至少有一种语言能朗读', spx.ja || spx.zh, `ja=${spx.ja} zh=${spx.zh}`);
+if (!spx.ja) {
+  console.log('  INFO  日语无合成语音 —— 翻译页应显示「无法朗读」而不是提示装语音包');
+  await goto('#/translate');
+  await sleep(4200);
+  const cap = await page.$eval('#capBox', (e) => e.innerText);
+  ok('能力表如实标出日语不可朗读', /朗读日语[\s\S]*不可用/.test(cap), cap.replace(/\n/g, '|').slice(0, 90));
+}
 ok('原生桥返回了语音识别状态', typeof spx.asr.available === 'boolean');
 await page.$eval('#trIn', (e) => { e.value = '这个多少钱'; });
 await page.click('#btnGo');
