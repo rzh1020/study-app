@@ -29,3 +29,14 @@ study-backup-*.json
 
 # 语音渲染用的大模型（147MB Kokoro / sherpa AAR），只在电脑上用，产物才入库
 .data-src/sherpa/
+
+# 离线翻译：int8 量化的 NMT 模型（280MB）与 onnxruntime-web 运行时（12MB）。
+# 都不入库 —— 模型由 .nmt/export.py 从 HuggingFace 生成，运行时来自 npm，
+# 两者都用 tools/setup_nmt.sh 一键放回工程。
+models/
+vendor/
+.nmt/venv/
+.nmt/opus-mt-tc-big-zh-ja/
+.nmt/onnx-*/
+.nmt/out-*/
+.nmt/model_readme.md

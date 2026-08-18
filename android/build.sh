@@ -44,6 +44,17 @@ echo "[1/7] 收集 Web 资源"
 for item in index.html check.html manifest.webmanifest sw.js css js data icons audio; do
   cp -r "$ROOT/$item" "$OUT/assets/"
 done
+# 离线翻译：onnxruntime-web 运行时 + int8 量化的 NMT 模型（约 280MB）。
+# 这两份不在 git 里，由 tools/setup_nmt.sh 从 node_modules 和 .nmt/ 复制过来。
+# 缺了不算致命 —— App 会退回短语库翻译，所以只提示不中断。
+NMT_IN_APK=0
+if [ -f "$ROOT/models/zh-ja/encoder.int8.onnx" ] && [ -f "$ROOT/vendor/ort/ort.min.mjs" ]; then
+  cp -r "$ROOT/models" "$ROOT/vendor" "$OUT/assets/"
+  NMT_IN_APK=1
+  echo "      含离线翻译模型 $(du -sh "$OUT/assets/models" | cut -f1)"
+else
+  echo "      !! 未找到离线翻译模型，APK 将只带短语库翻译（跑 tools/setup_nmt.sh 生成）"
+fi
 # 只保留 PWA 真正用到的图标，去掉源 SVG 之外的多余文件
 rm -f "$OUT/assets/icons/icon-512.png"  # APK 图标走 vector，网页只用到 192
 ASSET_COUNT=$(find "$OUT/assets" -type f | wc -l)
@@ -97,7 +108,13 @@ cd "$OUT"
 cp base.apk unsigned.apk
 # assets 与 classes.dex 直接塞进 apk（zip）。-X 去掉多余的额外字段。
 (cd dex && zip -q -X ../unsigned.apk classes.dex)
-zip -q -X -r unsigned.apk assets
+# .onnx / .wasm 用「存储」不压缩（-0）：这些是 int8 权重和已压缩过的 wasm，
+# deflate 几乎压不动，却让 AssetManager 每次读都要解压 —— 模型 280MB，
+# 解压开销会直接体现在启动翻译的等待时间上。其余资源正常压缩。
+zip -q -X -r unsigned.apk assets -x 'assets/models/*' 'assets/vendor/*'
+if [ "$NMT_IN_APK" = "1" ]; then
+  zip -q -X -0 -r unsigned.apk assets/models assets/vendor
+fi
 "$BT/zipalign" -f -p 4 unsigned.apk aligned.apk
 
 # ---------- 6. 签名 ----------
@@ -123,8 +140,19 @@ case "${1:-}" in
   install|run)
     echo
     echo "安装中…"
-    # 用 -r 覆盖安装保留数据；若签名冲突（之前装过别的签名）会失败，此时提示卸载
-    if ! adb install -r "$APK"; then
+    # 为什么不用 adb install：带上 280MB 模型后 APK 接近 300MB，
+    # adb 的 streaming install 会失败且错误信息为空（实测）。
+    # 先 push 到 /data/local/tmp 再让 pm 从文件安装，稳定且能看到真实报错。
+    if [ "$(stat -c %s "$APK")" -gt 104857600 ]; then
+      adb push "$APK" /data/local/tmp/study-hub.apk
+      if ! adb shell pm install -r /data/local/tmp/study-hub.apk; then
+        echo
+        echo "!! 安装失败。若之前装过不同签名的版本，先执行："
+        echo "     adb uninstall $PKG"
+        exit 1
+      fi
+      adb shell rm -f /data/local/tmp/study-hub.apk
+    elif ! adb install -r "$APK"; then
       echo
       echo "!! 覆盖安装失败。若之前装过不同签名的版本，先执行："
       echo "     adb uninstall $PKG"

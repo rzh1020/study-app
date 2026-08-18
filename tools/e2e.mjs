@@ -67,6 +67,9 @@ const MIME = {
   '.webmanifest': 'application/manifest+json; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
+  // onnxruntime 用 instantiateStreaming 加载运行时，MIME 不对会回退并报错
+  '.wasm': 'application/wasm',
+  '.onnx': 'application/octet-stream',
 };
 
 function serve(port) {
@@ -157,7 +160,7 @@ async function main() {
   ok('7 个牌组都有卡', Object.keys(deckCounts).length === 7 && Object.values(deckCounts).every((s) => s.total > 0),
     JSON.stringify(Object.fromEntries(Object.entries(deckCounts).map(([k, v]) => [k, v.total]))));
   ok('平假名 104 张', deckCounts.kana_hira.total === 104, String(deckCounts.kana_hira.total));
-  ok('词汇 2000 张', deckCounts.vocab_jp2cn.total === 2000, String(deckCounts.vocab_jp2cn.total));
+  ok('词汇 2021 张', deckCounts.vocab_jp2cn.total === 2021, String(deckCounts.vocab_jp2cn.total));
 
   console.log('\n=== 首页 ===');
   await goto('#/home');
@@ -176,7 +179,10 @@ async function main() {
   console.log('\n=== 牌组页 ===');
   await goto('#/jp');
   ok('牌组页列出 7 个牌组', (await page.$$('#view .bar')).length === 7, String((await page.$$('#view .bar')).length));
-  ok('有「开始今日全部」按钮', /开始今日全部/.test(await page.$eval('#view', (e) => e.innerText)));
+  // 日语页现在「先学后练」：课程入口在最前，复习按钮改叫「再练今日全部」
+  const jpTxt = await page.$eval('#view', (e) => e.innerText);
+  ok('日语页把课程放在最前', /先学 · 第 \d+ \/ 31 课/.test(jpTxt), jpTxt.slice(0, 60).replace(/\n/g, '|'));
+  ok('有复习入口', /再练今日全部|今天的日语卡都清空了/.test(jpTxt), jpTxt.slice(0, 80).replace(/\n/g, '|'));
   await shot('02-decks');
 
   console.log('\n=== 日语复习流程 ===');
@@ -339,6 +345,8 @@ async function main() {
 
   console.log('\n=== 练声：音准页（含麦克风）===');
   await goto('#/voice');
+  // 这一页会异步取配置和历史，等它渲染完再操作
+  await page.waitForSelector('#btnStart', { timeout: 15000 });
   ok('音准页有音高表', await page.$('#tnNote') !== null);
   ok('音准页有轨迹画布', await page.$('#trk') !== null);
   await page.click('#btnStart');
@@ -494,37 +502,45 @@ async function main() {
   ok('列出本机语音能力', /打字翻译/.test(capTxt) && /朗读日语/.test(capTxt), capTxt.slice(0, 70).replace(/\n/g, '|'));
   ok('能力表不停留在「检测中」', !/检测中/.test(capTxt.split('朗读中文')[1] || ''), capTxt.replace(/\n/g, '|'));
 
-  // 第 1 层：短语库精确匹配
+  // 翻译主路径现在是离线神经翻译（js/nmt.js + 打包在 APK 里的 int8 模型），
+  // 短语库退成兜底。等文本出现而不是死等固定时间：首次要加载 280MB 模型。
+  const waitOut = async (re, timeout = 40000) => {
+    await page.waitForFunction(
+      (src) => new RegExp(src).test((document.querySelector('#trOut') || {}).innerText || ''),
+      { timeout }, re.source);
+    return page.$eval('#trOut', (e) => e.innerText);
+  };
+
   await page.$eval('#trIn', (e) => { e.value = '这个多少钱'; });
   await page.click('#btnGo');
-  await sleep(700);
-  let out = await page.$eval('#trOut', (e) => e.innerText);
-  ok('短语库精确匹配出日语', /これはいくらですか/.test(out), out.slice(0, 70).replace(/\n/g, '|'));
-  ok('标出「短语库·精确匹配」', /短语库.*精确/.test(out), out.slice(0, 40).replace(/\n/g, '|'));
-  ok('显示罗马音且助词读音正确', /kore wa ikura desu ka/.test(out), out.replace(/\n/g, '|').slice(0, 90));
+  let out = await waitOut(/いくら/);
+  ok('语义翻译给出日语', /いくら/.test(out), out.slice(0, 70).replace(/\n/g, '|'));
+  ok('标明是整句语义翻译并报耗时', /语义翻译/.test(out) && /整句翻译，\d+ms/.test(out),
+    out.slice(0, 60).replace(/\n/g, '|'));
+  // beam search 的多个候选语气/礼貌度不同，旅游场景里「另一种说法」很有用
+  ok('给出备选说法', /其他说法/.test(out), out.slice(0, 90).replace(/\n/g, '|'));
 
-  // 第 1 层：模糊匹配（多了语气词）
+  // 短语库时代加语气词会掉到「相近句」，神经翻译不受这种表面差异影响
   await page.$eval('#trIn', (e) => { e.value = '这个多少钱呀'; });
   await page.click('#btnGo');
-  await sleep(600);
-  out = await page.$eval('#trOut', (e) => e.innerText);
-  ok('模糊匹配标为「相近句」并说明偏差', /相近句/.test(out) && /可能有偏差/.test(out), out.slice(0, 60).replace(/\n/g, '|'));
+  out = await waitOut(/いくら/);
+  ok('语气词不影响语义翻译', /いくら/.test(out), out.slice(0, 60).replace(/\n/g, '|'));
 
-  // 第 2 层：逐词，必须明确声明不是完整翻译
+  // 以前这句只能逐词查表（“便宜/相机”各查一个词），现在必须是整句
   await page.$eval('#trIn', (e) => { e.value = '我想买便宜的相机'; });
   await page.click('#btnGo');
-  await sleep(600);
-  out = await page.$eval('#trOut', (e) => e.innerText);
-  ok('逐词查询有结果', /逐词/.test(out), out.slice(0, 60).replace(/\n/g, '|'));
-  ok('明确声明不是完整翻译', /不是完整翻译/.test(out), out.slice(0, 80).replace(/\n/g, '|'));
-  ok('逐词模式显示命中统计', /命中 \d+/.test(out), (out.match(/命中 \d+[^\n]*/) || [''])[0]);
+  out = await waitOut(/カメラ/);
+  ok('长句整句翻译而不是逐词拼接', /カメラ/.test(out) && !/逐词/.test(out),
+    out.slice(0, 70).replace(/\n/g, '|'));
+  ok('译文含「想买」的语义（たい/欲しい）', /たい|欲し/.test(out),
+    out.slice(0, 70).replace(/\n/g, '|'));
 
-  // 第 3 层：查不到必须说查不到，不能编
+  // 短语库里绝不可能有的句子：神经模型不依赖收录，应当照样翻
   await page.$eval('#trIn', (e) => { e.value = '量子纠缠退相干时间'; });
   await page.click('#btnGo');
-  await sleep(600);
-  out = await page.$eval('#trOut', (e) => e.innerText);
-  ok('查不到时明确说未收录', /未收录|查不到/.test(out), out.slice(0, 60).replace(/\n/g, '|'));
+  out = await waitOut(/量子|時間/);
+  ok('词库外的句子也能翻（不再报未收录）', !/未收录|查不到/.test(out),
+    out.slice(0, 70).replace(/\n/g, '|'));
 
   // 日→中方向
   await page.click('#btnSwap');
@@ -554,13 +570,13 @@ async function main() {
   });
   await page.$eval('#trIn', (e) => { e.value = '请给我水'; });
   await page.click('#btnGo');
-  await sleep(600);
+  await waitOut(/水|みず/);
   await page.click('#btnSave');
   await sleep(800);
   const savedCard = await page.evaluate(async () => {
     const { db } = await import('./js/db.js');
     const all = await db.all('cards');
-    const mine = all.filter((c) => c.extra && c.extra.custom && /お水/.test(c.front));
+    const mine = all.filter((c) => c.extra && c.extra.custom && /水/.test(c.front));
     return { total: all.length, hit: mine.length };
   });
   ok('翻译结果可存为复习卡片', savedCard.hit === 1 && savedCard.total === beforeCards + 1,
@@ -580,6 +596,62 @@ async function main() {
   ok('短语库无残留边界标记', phQ.mark === 0, String(phQ.mark));
   ok('罗马音里没有漏转的假名', phQ.badRom === 0, String(phQ.badRom));
 
+  console.log('\n=== 日语课程（先讲再练）===');
+  await goto('#/course');
+  await sleep(900);
+  const cTxt = await page.$eval('#view', (e) => e.textContent);
+  ok('课程目录渲染', (await page.$('#view .hp-next')) !== null);
+  ok('7 个单元全部列出', (await page.$$('#view details.cu')).length === 7,
+    String((await page.$$('#view details.cu')).length));
+  ok('31 课全部渲染进 DOM', (await page.$$('#view a.cl')).length === 31,
+    String((await page.$$('#view a.cl')).length));
+  ok('标明顺序依据（教材出处）', /みんなの日本語/.test(cTxt));
+
+  await goto('#/course/1');
+  await sleep(1000);
+  const l1 = await page.$eval('#view', (e) => e.innerText);
+  ok('单课有句型骨架', (await page.$('#view .ls-pat')) !== null);
+  ok('单课有讲解正文', (await page.$eval('#view .ls-explain', (e) => e.innerText)).length > 60,
+    String((await page.$eval('#view .ls-explain', (e) => e.innerText)).length));
+  ok('单课有例句', (await page.$$('#view .ls-ex')).length >= 2,
+    String((await page.$$('#view .ls-ex')).length));
+  // 例句必须逐成分拆解 —— 这是解决「看不懂」的关键，只给整句等于没讲
+  ok('例句带成分拆解', (await page.$$('#view .ls-ex-note')).length >= 2,
+    String((await page.$$('#view .ls-ex-note')).length));
+  ok('单课有过关判据', /过关判据/.test(l1));
+  ok('单课有练习入口', (await page.$eval('#view', (e) => e.innerHTML)).includes('#/review/'));
+
+  // 有绑定词的课要显示词表
+  await goto('#/course/5');
+  await sleep(1000);
+  ok('第5课显示绑定词汇', (await page.$$('#view .ls-w')).length >= 3,
+    String((await page.$$('#view .ls-w')).length));
+  const w5 = await page.$eval('#view', (e) => e.innerText);
+  ok('词汇带假名和释义', /わたし|がくせい|せんせい/.test(w5), w5.slice(0, 120).replace(/\n/g, '|'));
+
+  // 标记学完 → 目录里进度推进
+  await page.click('#cbDone');
+  await sleep(700);
+  await goto('#/course');
+  await sleep(800);
+  ok('标记学完后进度推进', /已学完 1/.test(await page.$eval('#view', (e) => e.innerText)),
+    (await page.$eval('#view', (e) => e.innerText)).slice(0, 60).replace(/\n/g, '|'));
+
+  // 课程数据完整性：每课都必须有讲解、句型、例句、判据
+  const cq = await page.evaluate(async () => {
+    const d = await fetch('./data/course.json').then((r) => r.json());
+    const bad = d.lessons.filter((l) => !l.explain || l.explain.length < 40 || !l.pattern
+      || !l.examples.length || l.examples.some((e) => !e.jp || !e.cn || !e.note) || !l.gate);
+    return { n: d.lessons.length, units: d.units.length, bad: bad.length,
+             badTitles: bad.slice(0, 3).map((l) => l.title),
+             avgExplain: Math.round(d.lessons.reduce((a, l) => a + l.explain.length, 0) / d.lessons.length),
+             examples: d.lessons.reduce((a, l) => a + l.examples.length, 0) };
+  });
+  ok('每课都有讲解/句型/例句/判据', cq.bad === 0, JSON.stringify(cq));
+  ok('讲解正文平均长度够（>100字）', cq.avgExplain > 100, String(cq.avgExplain));
+  ok('例句总数 >= 80', cq.examples >= 80, String(cq.examples));
+  await shot('18-course');
+
   console.log('\n=== 内置日语语音（预渲染，不依赖系统 TTS）===');
   const ja = await page.evaluate(async () => {
     const J = await import('./js/jaspeech.js');
@@ -598,9 +670,34 @@ async function main() {
   ok('渲染引擎记录在案', ja.st.engine === 'open-jtalk', String(ja.st.engine));
   ok('短语走整句音频', ja.phrase === 'phrase', String(ja.phrase));
   ok('任意假名走音节拼接', ja.mora === 'mora', String(ja.mora));
-  ok('纯汉字无假名时判为不覆盖', ja.kanjiOnly === 'none', String(ja.kanjiOnly));
+  // 加了汉字→假名词典后，纯汉字文本也能读了（这是「任意文本可朗读」的核心）
+  ok('纯汉字文本也能读（词典转假名）', ja.kanjiOnly === 'mora', String(ja.kanjiOnly));
   ok('整句实际播放成功', ja.played === 'phrase', String(ja.played));
   ok('拼接实际播放成功', ja.playedMora === 'mora', String(ja.playedMora));
+
+  // 汉字→假名的回归用例。每一条都是实测踩过的错，锁住不许回退。
+  const k2k = await page.evaluate(async () => {
+    const J = await import('./js/jaspeech.js');
+    await J.loadDict();
+    const cases = [
+      ['友達が本をくれた。', 'ともだちがほんをくれた'],      // 本 曾错取训读 もと
+      ['カメラを買った。', 'かめらをかった'],               // 片假名曾被当汉字；買った 曾读 ばいった
+      ['毎日勉強します。', 'まいにちべんきょうします'],
+      ['昨日映画を見ました。', 'きのうえいがをみました'],     // 见ました 活用还原
+      ['日本へ行くとき', 'にほんへいくとき'],
+      ['電車で行きます', 'でんしゃでいきます'],
+      ['私は学生です。', 'わたしはがくせいです'],
+    ];
+    return cases.map(([src, want]) => {
+      const got = J.toKana(src);
+      return { src, want, got: got.kana, ok: got.kana === want, exact: got.exact };
+    });
+  });
+  for (const c of k2k) {
+    ok(`汉字转假名 ${c.src.slice(0, 10)}`, c.ok, `得到 ${c.got}，期望 ${c.want}`);
+  }
+  ok('全部用例零推测（都命中词典）', k2k.every((c) => c.exact),
+    JSON.stringify(k2k.filter((c) => !c.exact).map((c) => c.src)));
 
   console.log('\n=== 带唱 ===');
   await goto('#/sing');

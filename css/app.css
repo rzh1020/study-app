@@ -395,6 +395,10 @@ a { color: var(--acc); }
 
 .tr-main { font-size: 27px; font-weight: 600; line-height: 1.4; word-break: break-word; }
 .tr-kana { font-size: 16px; color: var(--fg2); margin-top: 4px; }
+/* 备选译法：神经翻译的 beam search 会给出多个候选，语气/礼貌度往往不同，
+   旅游场景里「另一种说法」比单一答案有用。 */
+.tr-alts { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
+.tr-alt { font-size: 15px; color: var(--fg2); padding: 3px 0; }
 .tr-romaji { font-size: 13px; color: var(--fg3); margin-top: 2px; font-family: ui-monospace, Menlo, monospace; }
 .tr-note {
   font-size: 12.5px; line-height: 1.5; margin-top: 10px;
@@ -596,3 +600,58 @@ a { color: var(--acc); }
 }
 .ear-rest > summary::-webkit-details-marker { display: none; }
 .ear-rest[open] > summary { color: var(--fg2); }
+
+/* ================= 日语课程 ================= */
+.cu { background: var(--bg2); border: 1px solid var(--line); border-radius: 14px; margin-bottom: 8px; overflow: hidden; }
+.cu > summary { display: flex; align-items: center; gap: 11px; padding: 12px 14px; cursor: pointer; list-style: none; }
+.cu > summary::-webkit-details-marker { display: none; }
+.cu[open] > summary { border-bottom: 1px solid var(--line); }
+.cu-n { min-width: 38px; height: 26px; padding: 0 7px; border-radius: 8px; flex: none;
+  display: grid; place-items: center; background: var(--bg3); color: var(--fg2);
+  font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.cu-t { flex: 1; min-width: 0; }
+.cu-t b { display: block; font-size: 15px; font-weight: 600; }
+.cu-t i { display: block; font-size: 11.5px; font-style: normal; color: var(--fg3); }
+.cu-body { padding: 4px 0; }
+.cl { display: flex; align-items: center; gap: 11px; padding: 9px 14px; text-decoration: none; color: inherit; }
+.cl.cur { background: rgba(91,140,255,.1); }
+.cl-n { width: 26px; height: 26px; border-radius: 50%; flex: none; display: grid; place-items: center;
+  background: var(--bg3); color: var(--fg3); font-size: 12px; font-weight: 600; }
+.cl.cur .cl-n { background: var(--acc); color: #fff; }
+.cl.done .cl-n { background: rgba(62,207,142,.2); color: var(--ok); }
+.cl-t { flex: 1; min-width: 0; }
+.cl-t b { display: block; font-size: 14px; }
+.cl-t i { display: block; font-size: 11px; font-style: normal; color: var(--fg3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cl.done .cl-t b { color: var(--fg2); }
+
+.ls-hd { padding: 2px 2px 14px; }
+.ls-hd h2 { margin: 3px 0 8px; font-size: 23px; font-weight: 700; line-height: 1.3; }
+.ls-pat { font-size: 15px; color: var(--acc); font-weight: 600; padding: 9px 12px;
+  background: rgba(91,140,255,.1); border-radius: 10px; border: 1px solid rgba(91,140,255,.3); }
+.ls-explain { font-size: 14.5px; line-height: 1.75; white-space: pre-wrap; color: var(--fg); }
+
+.ls-ex { background: var(--bg2); border: 1px solid var(--line); border-radius: 12px;
+  padding: 12px 13px; margin-bottom: 8px; cursor: pointer; }
+.ls-ex.on { border-color: var(--acc); background: rgba(91,140,255,.09); }
+.ls-ex-jp { font-size: 18px; font-weight: 600; line-height: 1.5; display: flex;
+  align-items: baseline; justify-content: space-between; gap: 8px; }
+.ls-ex-play { font-size: 14px; color: var(--acc); flex: none; }
+.ls-ex-cn { font-size: 13.5px; color: var(--fg2); margin-top: 3px; }
+.ls-ex-note { font-size: 12.5px; color: var(--fg3); margin-top: 6px; padding-top: 6px;
+  border-top: 1px dashed var(--line); line-height: 1.55; }
+
+.ls-w { display: flex; align-items: center; gap: 10px; padding: 9px 0;
+  border-bottom: 1px solid var(--line); cursor: pointer; }
+.ls-w:last-child { border-bottom: 0; }
+.ls-w.on { background: rgba(91,140,255,.07); }
+.ls-w-jp { font-size: 16px; font-weight: 600; }
+.ls-w-kana { font-size: 12.5px; color: var(--fg3); font-weight: 400; margin-left: 8px; }
+.ls-w-cn { font-size: 13px; color: var(--fg2); margin-top: 1px; }
+.ls-w-play { font-size: 16px; color: var(--acc); flex: none; }
+
+.ls-gate { background: rgba(242,178,62,.07); border-color: rgba(242,178,62,.32); }
+.ls-done { display: flex; align-items: center; gap: 9px; margin: 14px 0 0;
+  padding: 12px 13px; background: var(--bg2); border: 1px solid var(--line);
+  border-radius: 12px; font-size: 14.5px; }
+.ls-done input { width: auto; }

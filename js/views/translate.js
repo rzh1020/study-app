@@ -153,13 +153,64 @@ export async function render(view) {
   }
 
   // ---------- 翻译 ----------
-  function run() {
+  // ---------- 神经翻译（离线 NMT）----------
+  // 模型 280MB 打包在 APK 里，加载约 1.3 秒。进页面后延迟预热，
+  // 不挡住首屏；真要翻译时若还没好就等它。
+  let nmt = null;
+  let nmtWarm = null;
+  async function nmtModule() {
+    if (!nmt) nmt = await import('../nmt.js');
+    return nmt;
+  }
+  async function nmtReady() {
+    const N = await nmtModule();
+    if (N.available()) return true;
+    if (!nmtWarm) nmtWarm = N.load();
+    return nmtWarm;
+  }
+  // 只有中→日有模型（Helsinki opus-mt-tc-big-zh-ja）。
+  // 日→中暂时还是短语库，等把反向模型也量化进来再切。
+  const nmtDir = () => dir === 'cn2jp';
+  setTimeout(() => { if (nmtDir()) nmtReady().catch(() => {}); }, 800);
+
+  async function runNmt(text) {
+    const N = await nmtModule();
+    const ok = await nmtReady();
+    if (!ok) throw new Error(N.state.error || '模型不可用');
+    const r = await N.translate(text, { beams: 4 });
+    let kana = '';
+    try {
+      const J = await import('../jaspeech.js');
+      await J.loadDict();
+      kana = J.toKana(r.text).kana;
+    } catch { /* 没有假名也能显示，只是朗读会退化 */ }
+    return { ok: true, level: 1, grade: 'high', label: '语义翻译', engine: 'nmt',
+             text: r.text, kana, speakText: r.text, speakLang: 'ja-JP',
+             note: `整句翻译，${r.ms}ms`, alts: r.alts || [] };
+  }
+
+  async function run() {
     const text = $('#trIn').value.trim();
     if (!text) { toast('先输入一句话'); return; }
     lastInput = text;
+    if (nmtDir()) {
+      const N = await nmtModule();
+      if (!N.available()) {
+        $('#trOut').innerHTML = '<div class="card"><div class="small muted">正在载入翻译模型…</div></div>';
+      }
+      try {
+        result = await runNmt(text);
+        drawOut();
+        const lang = 'ja-JP';
+        if (result.speakText) doSpeak(result.speakText, lang, result.kana);
+        return;
+      } catch (e) {
+        // 模型出问题不能让页面变砖：退回短语库，并把原因如实说出来
+        toast('神经翻译不可用，已退回短语库：' + e.message);
+      }
+    }
     result = translate(text, dir);
     drawOut();
-    // 只在该语言确实能朗读时才自动播，否则每次都弹一个失败提示很烦
     const lang = result.speakLang || DIRS[dir].ttsLang;
     if (result.ok && result.level === 1 && result.speakText
         && (lang.startsWith('ja') || tts[lang] === true)) {
@@ -195,6 +246,10 @@ export async function render(view) {
       ${r.romaji ? `<div class="tr-romaji">${esc(r.romaji)}</div>` : ''}
       <div class="tr-note ${cls}">${esc(r.note)}</div>
       ${r.level === 2 ? tokens(r) : ''}
+      ${(r.alts && r.alts.length) ? `<div class="tr-alts">
+        <div class="tiny dim">其他说法</div>
+        ${r.alts.map((a) => `<div class="tr-alt">${esc(a)}</div>`).join('')}
+      </div>` : ''}
       <div class="btn-row mt">
         ${canSpeak ? `<button class="btn btn-pri" id="btnSpeak">${covLabel}</button>`
           : '<button class="btn" disabled title="不在内置语音覆盖内">🔇 读不出</button>'}

@@ -125,7 +125,7 @@ const seeded = await page.evaluate(async () => {
 ok('卡片已种入本机数据库', seeded.total >= 4000, `${seeded.total} 张`);
 ok('平假名 104', seeded.decks.kana_hira.total === 104, String(seeded.decks.kana_hira.total));
 ok('片假名 104', seeded.decks.kana_kata.total === 104, String(seeded.decks.kana_kata.total));
-ok('词汇 2000', seeded.decks.vocab_jp2cn.total === 2000, String(seeded.decks.vocab_jp2cn.total));
+ok('词汇 2021', seeded.decks.vocab_jp2cn.total === 2021, String(seeded.decks.vocab_jp2cn.total));
 ok('语法 42', seeded.decks.grammar.total === 42, String(seeded.decks.grammar.total));
 ok('声乐科普 45', seeded.decks.theory.total === 45, String(seeded.decks.theory.total));
 
@@ -299,6 +299,18 @@ ok('内置日语语音已打包（127 句 + 104 音节）',
 ok('真机上整句语音播放成功', jaAudio.played === 'phrase', String(jaAudio.played));
 ok('真机上音节拼接播放成功', jaAudio.moraPlayed === 'mora', String(jaAudio.moraPlayed));
 if (!spx.ja) console.log('  INFO  系统确实没有日语引擎，内置语音是唯一通路 —— 已验证可用');
+ok('原生桥返回了语音识别状态', typeof spx.asr.available === 'boolean');
+// 这几条要在翻译页上下文里跑：一旦 goto 到别的页，#trIn 就不在 DOM 里了。
+// 翻译主路径是离线神经模型（APK 内 int8 模型），首次要等它加载 280MB。
+await page.$eval('#trIn', (e) => { e.value = '这个多少钱'; });
+await page.click('#btnGo');
+await page.waitForFunction(
+  () => /いくら/.test((document.querySelector('#trOut') || {}).innerText || ''),
+  { timeout: 60000 });
+const trO = await page.$eval('#trOut', (e) => e.innerText);
+ok('真机上语义翻译可用', /いくら/.test(trO), trO.slice(0, 60).replace(/\n/g, '|'));
+ok('标明是整句语义翻译', /语义翻译/.test(trO) && /整句翻译/.test(trO),
+  trO.slice(0, 60).replace(/\n/g, '|'));
 
 console.log('\n=== 带唱（真机）===');
 await goto('#/sing');
@@ -309,13 +321,27 @@ const rollPx = await page.$eval('#roll', (c) => {
   let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 0) n++; return n;
 });
 ok('钢琴卷帘已绘制', rollPx > 2000, String(rollPx));
-ok('原生桥返回了语音识别状态', typeof spx.asr.available === 'boolean');
-await page.$eval('#trIn', (e) => { e.value = '这个多少钱'; });
-await page.click('#btnGo');
-await sleep(900);
-const trO = await page.$eval('#trOut', (e) => e.innerText);
-ok('真机上短语库翻译可用', /これはいくらですか/.test(trO), trO.slice(0, 60).replace(/\n/g, '|'));
-ok('罗马音助词读音正确', /kore wa ikura desu ka/.test(trO));
+
+console.log('\n=== 日语课程（真机：数据从 APK 内读取 + 例句朗读）===');
+await goto('#/course');
+await sleep(1200);
+ok('课程目录在真机渲染', (await page.$$('#view a.cl')).length === 31,
+  String((await page.$$('#view a.cl')).length));
+await goto('#/course/5');
+await sleep(1200);
+ok('单课讲解正文可读', (await page.$eval('#view .ls-explain', (e) => e.innerText)).length > 60);
+ok('例句带成分拆解', (await page.$$('#view .ls-ex-note')).length >= 2,
+  String((await page.$$('#view .ls-ex-note')).length));
+// 真机独有：系统没有日语引擎，课程例句必须靠内置预渲染语音读出来
+const lessonSpeak = await page.evaluate(async () => {
+  const d = await fetch('./data/course.json').then((r) => r.json());
+  const ex = d.lessons.find((l) => l.n === 5).examples[0];
+  const J = await import('./js/jaspeech.js');
+  return { jp: ex.jp, played: await J.speakJa(ex.jp, null, null) };
+});
+ok('课程例句在真机能朗读', lessonSpeak.played === 'phrase' || lessonSpeak.played === 'mora',
+  JSON.stringify(lessonSpeak));
+await shot('08-course');
 
 console.log('\n=== 数据页 ===');
 await goto('#/data');

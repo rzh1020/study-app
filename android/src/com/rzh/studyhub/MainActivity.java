@@ -87,6 +87,10 @@ public class MainActivity extends Activity {
         MIME.put("png", "image/png");
         MIME.put("woff2", "font/woff2");
         MIME.put("txt", "text/plain");
+        // onnxruntime-web 用 WebAssembly.instantiateStreaming 加载运行时，
+        // MIME 不是 application/wasm 时会直接失败（不会自动退回 arrayBuffer）。
+        MIME.put("wasm", "application/wasm");
+        // .onnx 走默认 application/octet-stream，不用单独列。
     }
 
     @Override
@@ -188,6 +192,12 @@ public class MainActivity extends Activity {
             // 同源即可，不需要 CORS；但 SW 注册要求 Service-Worker-Allowed 覆盖到根
             headers.put("Service-Worker-Allowed", "/");
             headers.put("Cache-Control", "no-cache");
+            // 开启跨源隔离，让 SharedArrayBuffer 可用 —— WASM 多线程推理需要它。
+            // 实测这台设备的 WebView 默认 SharedArrayBuffer=undefined（只能单线程），
+            // 加上这两个头之后才能用多核跑神经网络推理。
+            headers.put("Cross-Origin-Opener-Policy", "same-origin");
+            headers.put("Cross-Origin-Embedder-Policy", "require-corp");
+            headers.put("Cross-Origin-Resource-Policy", "same-origin");
             res.setResponseHeaders(headers);
             return res;
         } catch (IOException e) {
