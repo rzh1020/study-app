@@ -246,16 +246,20 @@ async function main() {
   await goto('#/ear');
   // 阶梯改成一行一级的紧凑列表：解锁的是 <a.ear-row>，未解锁的是 <div.ear-row.locked>
   const ladderTxt = await page.$eval('#view', (e) => e.innerText);
-  ok('练耳阶梯列出 9 级', (await page.$$('#view .ear-row')).length === 9,
+  ok('练耳阶梯共 11 级', (await page.$$('#view .ear-row')).length === 11,
     String((await page.$$('#view .ear-row')).length));
   ok('只有第一级解锁（渐进解锁生效）', (await page.$$('#view a.ear-row')).length === 1,
     String((await page.$$('#view a.ear-row')).length));
-  ok('未解锁的级是锁定态', (await page.$$('#view .ear-row.locked')).length === 8,
-    String((await page.$$('#view .ear-row.locked')).length));
+  // 不能一屏摆 10 把锁：默认只露出「已解锁 + 下一级」，其余收进折叠区
+  ok('锁墙已折叠', (await page.$$('#view details.ear-rest')).length === 1,
+    String((await page.$$('#view details.ear-rest')).length));
+  ok('默认露出的行不超过 3', (await page.$$eval('#view .ear-list', (ls) => ls[0].children.length)) <= 3,
+    String(await page.$$eval('#view .ear-list', (ls) => ls[0].children.length)));
+  ok('第一级是「唱回来」（真实教学法从唱开始）', /唱回来/.test(await page.$eval('#view', (e) => e.innerText)));
   ok('顶部有「接着练」入口', (await page.$('#view .ear-hero')) !== null);
   ok('菜单不再有说教文案', !/为什么练/.test(ladderTxt), ladderTxt.slice(0, 40).replace(/\n/g, '|'));
 
-  for (const mode of ['highlow', 'same', 'contour', 'tri', 'degree', 'chord', 'interval', 'melody', 'rhythm']) {
+  for (const mode of ['isdo', 'highlow', 'same', 'contour', 'tri', 'degree', 'chord', 'interval', 'melody', 'rhythm']) {
     await goto(`#/ear/${mode}`);
     await sleep(700);
     // 第一次进某一级先出示范页：零基础的人对「音高」「音程」没有概念，
@@ -298,7 +302,7 @@ async function main() {
   });
   // 熟悉模式的作答不计分不落库；第一次进某一级会自动开熟悉模式，
   // 所以这里只断言「有记录」而不是精确条数
-  ok('练耳记录已落库（9 级各 1 题）', earLog === 9, String(earLog));
+  ok('练耳记录已落库（10 级各 1 题）', earLog === 10, String(earLog));
   await goto('#/ear/highlow/demo');
   await sleep(700);
   ok('答题页可回看示范', (await page.$$('#demos [data-d]')).length >= 2,
@@ -320,7 +324,7 @@ async function main() {
     const { levelProgress, LEVELS, UNLOCK } = await import('./js/ear-levels.js');
     const empty = levelProgress([]);
     const passFirst = levelProgress(
-      Array.from({ length: UNLOCK.window }, (_, i) => ({ mode: 'highlow', correct: 1, ts: i })));
+      Array.from({ length: UNLOCK.window }, (_, i) => ({ mode: LEVELS[0].id, correct: 1, ts: i })));
     return {
       firstUnlockedEmpty: empty[LEVELS[0].id].unlocked,
       secondLockedEmpty: empty[LEVELS[1].id].unlocked,

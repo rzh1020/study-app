@@ -587,3 +587,12 @@ a { color: var(--acc); }
 }
 .hp-more a b { display: block; font-size: 14px; font-weight: 600; }
 .hp-more a i { display: block; font-size: 10.5px; font-style: normal; color: var(--fg3); margin-top: 1px; }
+
+.ear-rest { margin-top: 10px; }
+.ear-rest > summary {
+  list-style: none; cursor: pointer; font-size: 12.5px; color: var(--fg3);
+  padding: 9px 12px; background: var(--bg2); border: 1px solid var(--line);
+  border-radius: 11px; text-align: center;
+}
+.ear-rest > summary::-webkit-details-marker { display: none; }
+.ear-rest[open] > summary { color: var(--fg2); }

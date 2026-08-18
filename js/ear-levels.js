@@ -1,22 +1,20 @@
 /**
  * 练耳课程阶梯。
  *
- * 原来最低一档是「音级辨识」，但那已经要求听者具备相对音高感 —— 零基础只能乱猜，
- * 而乱猜不产生学习（没有可用的类别，误差信号无处可去）。
+ * 上一版是「抽象比较两个音」起步，这不是课堂上的教法。真实的视唱练耳有两条
+ * 被反复验证的原则，之前都没做：
  *
- * 这里补上前四级，核心思路是把「听觉判别」拆到不需要任何先验知识的粒度：
- *   L1 高低    只需判断两个音谁高 —— 这是所有音高感知的地基，人人天生具备
- *   L2 同异    判断两个音是否相同，从 5 个半音差逐步收窄到 1 个
- *   L3 方向    三个音的走向（上行/下行/波浪/平），开始处理序列
- *   L4 三音音级 只在 do-mi-sol 三个音里选，固定主音
- * 然后才接原有的 音级 → 和弦 → 音程 → 旋律 → 节奏。
+ * 1. **先建立调性语境，再辨认音**（functional ear training 的核心）。
+ *    课堂上不会孤零零丢两个音让你比高低 —— 而是先弹 I-V-I 之类的和声进行
+ *    把「do 在哪」钉住，再让你判断听到的音是第几级。
+ *    没有调性锚点时，绝对音高只有少数人有，多数人只能猜；
+ *    有了锚点，判断变成「它相对 do 在哪」，这是可练的能力。
  *
- * 另外三条对零基础很关键的设计：
- * 1. 入门级固定主音（永远 C4）。随机主音要求相对音高，是进阶能力。
- * 2. 每级都有「熟悉模式」：先播放并直接显示答案，可无限重听，建立听感锚点。
- *    这不与「先猜后看答案」矛盾 —— 那条讲的是测试阶段；没有类别时得先靠
- *    暴露建立类别，再用提取练习强化。
- * 3. 自适应解锁：连续正确率达标才开下一级，避免在够不着的难度上耗时间。
+ * 2. **唱回来，而不是做选择题**（视唱与练耳是一件事的两面）。
+ *    唱出来才能暴露「听到了但唱不到」这一类问题，而选择题会被蒙对掩盖。
+ *    本项目已经有麦克风和音高检测，所以第一级直接用唱。
+ *
+ * 另外把「一屏 8 把锁」去掉了 —— 那既打击人也像坏了。只展示当前和下一级。
  */
 
 import { parseNote } from './pitch.js';
@@ -28,8 +26,35 @@ export const UNLOCK = { window: 12, acc: 0.85 };
 
 export const LEVELS = [
   {
+    id: 'singback',
+    name: "① 唱回来",
+    tier: '入门',
+    desc: '听一个音，用「啊」把它唱回来。系统听你唱的对不对。',
+    how: '听一个音，唱回同一个音。',
+    kind: 'singback',
+    needsMic: true,
+    demos: [
+      { label: '会先弹一个音给你', seq: [60] },
+      { label: '然后你唱同一个音', seq: [60] },
+    ],
+  },
+  {
+    id: 'isdo',
+    name: "② 这是 do 吗",
+    tier: '入门',
+    desc: '先听一段和声把调性钉住，再听一个音，判断它是不是 do（主音）。',
+    how: '先听和声定调，再判断是不是 do。',
+    kind: 'isdo',
+    options: ['是 do', '不是 do'],
+    demos: [
+      { label: '先听这段和声（定调）', cadence: true },
+      { label: '这个是 do', cadence: true, degree: 0 },
+      { label: '这个不是 do', cadence: true, degree: 4 },
+    ],
+  },
+  {
     id: 'highlow',
-    name: '① 哪个音高',
+    name: "③ 哪个音高",
     tier: '入门',
     desc: '听两个音，说出第二个比第一个高还是低。',
     kind: 'pair2',
@@ -39,7 +64,7 @@ export const LEVELS = [
   },
   {
     id: 'same',
-    name: '② 一样吗',
+    name: "④ 一样吗",
     tier: '入门',
     desc: '两个音是不是同一个音。',
     kind: 'same',
@@ -49,7 +74,7 @@ export const LEVELS = [
   },
   {
     id: 'contour',
-    name: '③ 走向',
+    name: "⑤ 走向",
     tier: '入门',
     desc: '三个音往哪走。',
     kind: 'contour',
@@ -59,25 +84,27 @@ export const LEVELS = [
   },
   {
     id: 'tri',
-    name: '④ do mi sol',
+    name: "⑥ do mi sol",
     tier: '入门',
     desc: '大三和弦的三个音：do mi sol。',
     kind: 'degree3',
+    cadence: true,
     how: "大三和弦的三个音：do mi sol。",
     demos: [{"label": "do", "seq": [60]}, {"label": "mi", "seq": [64]}, {"label": "sol", "seq": [67]}, {"label": "三个连起来", "seq": [60, 64, 67]}],
   },
   {
     id: 'degree',
-    name: '⑤ 音级辨识',
+    name: "⑦ 音级辨识",
     tier: '进阶',
     desc: '完整大调音阶里的第几级。',
     kind: 'degree',
+    cadence: true,
     how: "完整大调音阶里的第几级。",
     demos: [{"label": "音阶上行 do→do", "seq": [60, 62, 64, 65, 67, 69, 71, 72]}],
   },
   {
     id: 'chord',
-    name: '⑥ 和弦性质',
+    name: "⑧ 和弦性质",
     tier: '进阶',
     desc: '和弦是明亮还是暗。',
     kind: 'chord',
@@ -86,7 +113,7 @@ export const LEVELS = [
   },
   {
     id: 'interval',
-    name: '⑦ 音程辨识',
+    name: "⑨ 音程辨识",
     tier: '进阶',
     desc: '两个音差多远。',
     kind: 'interval',
@@ -95,7 +122,7 @@ export const LEVELS = [
   },
   {
     id: 'melody',
-    name: '⑧ 旋律模唱',
+    name: "⑩ 旋律模唱",
     tier: '进阶',
     desc: '记住并认出一小段旋律。',
     kind: 'melody',
@@ -104,7 +131,7 @@ export const LEVELS = [
   },
   {
     id: 'rhythm',
-    name: '⑨ 节奏辨识',
+    name: "⑪ 节奏辨识",
     tier: '进阶',
     desc: '节奏的长短组合。',
     kind: 'rhythm',

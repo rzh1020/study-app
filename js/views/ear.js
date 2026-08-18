@@ -1,7 +1,7 @@
 import { $, esc, toast } from '../ui.js';
 import { setTitle } from '../app.js';
-import { audioCtx, playNote, playSequence, playChord, click, sleep } from '../audio.js';
-import { noteName } from '../pitch.js';
+import { audioCtx, playNote, playSequence, playChord, click, sleep, mic } from '../audio.js';
+import { noteName, hzToMidi } from '../pitch.js';
 import { db, dayStart, metaGet, metaSet } from '../db.js';
 import { getConfig } from '../store.js';
 import { LEVELS, LEVEL_BY_ID, FIXED_ROOT, UNLOCK, levelProgress, suggestLevel, nextSameGap } from '../ear-levels.js';
@@ -42,6 +42,23 @@ const RHYTHMS = [
 ];
 
 const ROOT_LO = 55, ROOT_HI = 67;
+/**
+ * I - V - I 和声进行，用来把调性钉住。
+ * 这是 functional ear training 的关键一步：没有调性锚点时，
+ * 判断「这个音是第几级」需要绝对音高（多数人没有）；
+ * 有了锚点，问题变成「它相对 do 在哪」，这才是可训练的。
+ */
+async function playCadence(root, a4) {
+  const I = [root, root + 4, root + 7];
+  const V = [root - 5, root - 1, root + 2];
+  await playChord(I, 0.65, { a4, gain: 0.17 });
+  await sleep(60);
+  await playChord(V, 0.65, { a4, gain: 0.17 });
+  await sleep(60);
+  await playChord(I, 0.8, { a4, gain: 0.19 });
+  await sleep(220);
+}
+
 const rand = (n) => Math.floor(Math.random() * n);
 const pick = (a) => a[rand(a.length)];
 const shuffle = (a) => {
@@ -109,10 +126,21 @@ async function menu(view, cfg) {
       <div class="bar" style="margin-top:7px"><i style="width:${Math.min((today.length / cfg.earDailyTarget) * 100, 100)}%"></i></div>
     </div>
 
-    <div class="sec-title">入门</div>
-    <div class="ear-list">${LEVELS.filter((l) => l.tier === '入门').map(row).join('')}</div>
-    <div class="sec-title">进阶</div>
-    <div class="ear-list">${LEVELS.filter((l) => l.tier === '进阶').map(row).join('')}</div>
+    ${(() => {
+      const idx = LEVELS.findIndex((l) => l.id === next);
+      // 只展示已解锁的 + 紧接着的一级。一屏 8 把锁既打击人也像功能坏了，
+      // 剩下的收进折叠区，想看全貌再点开。
+      const shown = LEVELS.filter((l, i) => prog[l.id].unlocked || i === idx + 1);
+      const hidden = LEVELS.filter((l) => !shown.includes(l));
+      return `
+        <div class="ear-list">${shown.map(row).join('')}</div>
+        ${hidden.length ? `
+        <details class="ear-rest">
+          <summary>后面还有 ${hidden.length} 级 · 逐级解锁</summary>
+          <div class="ear-list" style="margin-top:8px">${hidden.map(row).join('')}</div>
+        </details>` : ''}`;
+    })()}
+
     <div class="card tight">
       <div class="tiny dim">戴耳机。手机扬声器低频缺失，低音区会判断不准。</div>
     </div>
@@ -234,6 +262,23 @@ function quiz(view, level, cfg) {
     fbEl.classList.add('hidden');
     $('#qextra').textContent = '';
     switch (level.kind) {
+      case 'singback': {
+        // 唱回来：固定主音附近取一个音，让用户唱同一个音
+        const target = FIXED_ROOT + pick([0, 2, 4, 5, 7]);
+        q = { root: FIXED_ROOT, target, answer: 'sung' };
+        $('#qtext').textContent = '听这个音，然后用「啊」唱回同一个音';
+        $('#qextra').textContent = '按住下面的按钮唱 2 秒';
+        break;
+      }
+      case 'isdo': {
+        const root = FIXED_ROOT;
+        const isDo = Math.random() < 0.45;
+        const di = isDo ? 0 : pick([1, 2, 3, 4, 5, 6]);
+        q = { root, degIdx: di, isDo, answer: isDo ? '是 do' : '不是 do' };
+        $('#qtext').textContent = '先听和声定调，再听目标音：它是 do 吗？';
+        $('#qextra').textContent = 'do 就是这个调的主音，听起来最「落地」';
+        break;
+      }
       case 'pair2': {
         // 高低：差距从 12 半音（一个八度，极易）随正确率收窄
         const recent = logs.slice(-8);
@@ -335,7 +380,16 @@ function quiz(view, level, cfg) {
     const btn = $('#btnPlay');
     btn.disabled = true;
     try {
+      if (level.cadence && q.root) await playCadence(q.root, a4);
       switch (level.kind) {
+        case 'singback': {
+          await playNote(q.target, 1.0, { a4 });
+          break;
+        }
+        case 'isdo': {
+          await playNote(q.root + SCALE[q.degIdx], 0.9, { a4 });
+          break;
+        }
         case 'pair2': {
           const second = q.root + (q.up ? q.gap : -q.gap);
           await playNote(q.root, 0.6, { a4 }); await sleep(180);
@@ -381,6 +435,12 @@ function quiz(view, level, cfg) {
 
   function renderOptions() {
     let html = '';
+    if (level.kind === 'singback') {
+      optsEl.innerHTML = `<button class="btn btn-pri btn-block" id="btnSingBack">🎤 按一下开始唱（2 秒）</button>
+        <div class="tiny dim center mt" id="sbHint">唱完会告诉你偏了多少</div>`;
+      $('#btnSingBack').onclick = singBack;
+      return;
+    }
     if (level.options) {
       const cls = level.options.length > 2 ? 'c2' : 'c2';
       html = `<div class="opt-grid ${cls}">${level.options.map((o) =>
@@ -409,6 +469,69 @@ function quiz(view, level, cfg) {
       if (learnMode && b.dataset.k === q.answer) b.classList.add('right');
       b.onclick = () => answer(b);
     });
+  }
+
+  /**
+   * 唱回来的判定：采 2 秒，取音高中位数与目标比。
+   * 用中位数而不是均值 —— 起音和收音都在滑音，均值会被拖偏。
+   * 判定阈值放宽到 ±80 音分（约 4/5 个半音）：这一级练的是「能不能唱到那个音」，
+   * 不是音准精度，太严会让零基础的人一直失败。
+   */
+  async function singBack() {
+    const btn = $('#btnSingBack');
+    btn.disabled = true;
+    try {
+      audioCtx();
+      await mic.start();
+    } catch (err) {
+      $('#sbHint').innerHTML = `<span style="color:var(--bad)">麦克风打不开：${esc(err.message)}</span>`;
+      btn.disabled = false;
+      return;
+    }
+    const samples = [];
+    for (let i = 2; i > 0; i--) {
+      btn.textContent = `唱… ${i}`;
+      const t0 = performance.now();
+      while (performance.now() - t0 < 1000) {
+        const p = mic.readPitch({ a4 });
+        if (p.hz > 0 && p.clarity > 0.82) samples.push(hzToMidi(p.hz, a4));
+        await sleep(40);
+      }
+    }
+    mic.stop();
+    btn.textContent = '🎤 再唱一次';
+    btn.disabled = false;
+    if (samples.length < 8) {
+      $('#sbHint').innerHTML = '<span style="color:var(--warn)">没采到声音。离手机近一点，用「啊」，音量比说话大一点</span>';
+      return;
+    }
+    samples.sort((a, b) => a - b);
+    const med = samples[Math.floor(samples.length / 2)];
+    // 允许差整数个八度：唱不到那个音高但唱对了音名，也算对
+    const rel = ((med - q.target) % 12 + 12) % 12;
+    const cents = Math.round((rel > 6 ? rel - 12 : rel) * 100);
+    const okSung = Math.abs(cents) <= 80;
+    answered = true;
+    n++;
+    if (okSung) ok++;
+    $('#qn').textContent = n;
+    $('#qok').textContent = ok;
+    $('#qacc').innerHTML = `<span class="pill ${ok / n >= UNLOCK.acc ? 'ok' : ''}">${Math.round((ok / n) * 100)}%</span>`;
+    await db.add('earlog', { ts: Date.now(), mode: level.id, correct: okSung ? 1 : 0,
+      item: String(q.target), chose: String(Math.round(med)), gap: Math.abs(cents) });
+    logs.push({ mode: level.id, correct: okSung ? 1 : 0 });
+    fbEl.classList.remove('hidden');
+    fbEl.innerHTML = `<div class="small">
+      ${okSung ? '<span style="color:var(--ok)">✓ 唱到了</span>' : '<span style="color:var(--bad)">✗ 差得多</span>'}
+      目标 ${noteName(q.target)}，你唱的 ${noteName(Math.round(med))}
+      （偏 ${cents > 0 ? '+' : ''}${cents} 音分${Math.abs(med - q.target) > 6 ? '，差了八度但音名对' : ''}）
+      </div>
+      <div class="btn-row mt">
+        <button class="btn btn-sm btn-ghost" id="btnAgain">重听目标音</button>
+        <button class="btn btn-sm btn-pri" id="btnNext">下一题</button>
+      </div>`;
+    $('#btnAgain').onclick = play;
+    $('#btnNext').onclick = newQuestion;
   }
 
   async function answer(btn) {
@@ -453,6 +576,11 @@ function quiz(view, level, cfg) {
 
   function explain() {
     switch (level.kind) {
+      case 'isdo':
+        return ` 主音 do 是 ${noteName(q.root)}，目标音 ${noteName(q.root + SCALE[q.degIdx])}` +
+          (q.isDo ? '，正是 do。' : `，是第 ${q.degIdx + 1} 级（${DEGREE_NAMES[q.degIdx]}），不是 do。`);
+      case 'singback':
+        return ` 目标 ${noteName(q.target)}。`;
       case 'pair2': {
         const second = q.root + (q.up ? q.gap : -q.gap);
         return ` ${noteName(q.root)} → ${noteName(second)}，${q.up ? '上行' : '下行'} ${q.gap} 个半音。`;
