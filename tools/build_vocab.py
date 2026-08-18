@@ -307,6 +307,37 @@ def load_pairs(links_path, jpn_path, cmn_path):
     return out
 
 
+# 中日词库缺这几个词的键（它把释义挂在别的写法下），但课程要用。
+# 人工补中释，与词库同格式。宁可显式列出，也不要让课程缺材料。
+COURSE_GLOSS_FALLBACK = {
+    '聞く': {'kana': 'きく', 'pitch': '0', 'posCn': '动词', 'cn': '听；问，打听'},
+    'できる': {'kana': 'できる', 'pitch': '2', 'posCn': '动词', 'cn': '能，会；做好，完成'},
+}
+
+
+def load_course_words():
+    """课程表里绑定的词，必须保证入选。
+
+    自检暴露过一个真问题：先生/食べる/飲む/待つ 这类**基础教学词**
+    不在语料高频前 2000 —— 因为语料统计的是「实际出现频次」，
+    而教材选词看的是「教学必需性」，两者不重合。
+    先生 在口语语料里没那么高频，但它是第 5 课就要用的词。
+    所以课程用词单独保证，不能只靠词频。
+    """
+    import re as _re
+    p = os.path.join(HERE, 'gen_course.py')
+    if not os.path.exists(p):
+        return set()
+    txt = open(p, encoding='utf-8').read()
+    words = set()
+    # 取 L(...) 调用里的词表参数：形如 ['私', '学生', ...]
+    for m in _re.finditer(r"\n\s*\[([^\]]*)\],\s*'(?:kana_\w+|vocab_\w+|grammar)'", txt):
+        for w in _re.findall(r"'([^']+)'", m.group(1)):
+            words.add(w)
+    log(f'课程必需词 {len(words)} 个（保证入选）')
+    return words
+
+
 def load_hooks():
     """读取手写的记忆钩子（tools/vocab_hooks.mjs 里的 TSV 块）。"""
     p = os.path.join(HERE, 'vocab_hooks.mjs')
@@ -371,6 +402,7 @@ def main():
     args = ap.parse_args()
 
     hooks = load_hooks()
+    courseWords = load_course_words()
     entries = parse_jmdict(os.path.join(SRC, 'JMdict_e.gz'))
     jc = parse_jc(os.path.join(SRC, 'jc.json'))
     freq = parse_tubelex(os.path.join(SRC, 'tubelex.tsv'))
@@ -411,7 +443,11 @@ def main():
             continue
         if any(p in POS_SKIP for p in e['pos']) and not any(p in POS_CN for p in e['pos']):
             continue
-        if {'arch', 'obs', 'obsc', 'rare'} & set(e['misc']):
+        # misc 是**义项级**标记。先生 这类词既有常用义项也有古语义项，
+        # 之前「任一义项带 arch 就排除整词」把 先生 直接毙了。
+        # 改成只在**全部**义项都是古语/废弃/生僻时才排除。
+        bad = {'arch', 'obs', 'obsc', 'rare'}
+        if e['misc'] and all(m in bad for m in e['misc']):
             continue
         keys = lookup_keys(e)
         if not keys:
@@ -446,10 +482,17 @@ def main():
         # 手写记忆钩子覆盖的词是按「初学者必需」人工挑的（水/山/猫/犬/寒暄语这类），
         # 这是课程知识而不是语料统计能给出的信息，所以给一个小幅前提。
         # 幅度刻意小：只把它们从两千名外拉进射程，不会顶掉真正的高频词。
+        # 匹配课程词/钩子词时要看全部词形和假名 ——
+        # 课程表里写的是 ここ/する/聞く 这类日常写法，而 JMdict 的 forms[0]
+        # 可能是 此処/為る 这种生僻汉字形，只比对 forms[0] 会错过。
+        allforms = set(e['forms']) | set(e['kana'])
         form0 = e['forms'][0] if e['forms'] else e['kana'][0]
-        if form0 in hooks:
+        if allforms & set(hooks):
             e['score'] *= 0.55
             e['hookBoost'] = True
+        # 课程词不靠评分前提保证 —— 试过，不可靠：
+        # 一个词条有多个词形（此処/ここ），交集会把标记打在生僻汉字条目上，
+        # 最终入表的却是别的条目。改成在最后**确定性补入**（见下方 force-add）。
         # 保留旧排序用的字段，供 --compare 对照
         e['videos'] = max((freq[k][0] for k in keys if k in freq), default=0)
         cands.append(e)
@@ -490,9 +533,23 @@ def main():
             break
         form = e['forms'][0] if e['forms'] else e['kana'][0]
         kana = e['kana'][0] if e['kana'] else form
+        # 有些词日常就写假名，JMdict 里却挂着生僻汉字形：
+        #   ここ→此処、どこ→何処、する→為る、できる→出来る
+        # 直接取 forms[0] 会让词表出现「此処」这种没人写的形式，
+        # 学习者看到反而困惑。JMdict 用 uk (usually kana) 标记这类词，
+        # 命中就改用假名形。
+        if 'uk' in e['misc'] and e['kana']:
+            form = e['kana'][0]
+            kana = e['kana'][0]
         if form in seen:
             continue
         info = jc.get(form) or jc.get(kana)
+        if not info and e['forms']:
+            # 中日词库的键可能用了别的写法（聞く 收在 聴く 下之类），再试其他词形
+            for alt in e['forms'] + e['kana']:
+                info = jc.get(alt)
+                if info:
+                    break
         if not info:
             no_cn += 1
             continue
@@ -530,17 +587,88 @@ def main():
             'pSpoken': round(e['pSpoken'], 4),
             'pSubs': round(e['pSubs'], 4),
             'nCorpus': e['nCorpus'],
+            'course': bool(e.get('courseWord')),
             'rank': rank,
             'stage': stage_of(rank),
             'exJp': ex_jp, 'exCn': ex_cn,
             'read': h.get('read', ''), 'hook': h.get('hook', ''),
         })
 
+    # ---- 课程词确定性补入 ----
+    # 课程表里第 N 课要用的词，缺一个就有一课没材料可练。
+    # 语料词频保证不了这个：先生/食べる/待つ 是教学必需词，但未必在语料前 2000。
+    # 所以这里按名字精确找回并追加，宁可让词表略超 limit。
+    have = set()
+    for v in vocab:
+        have.add(v['jp'])
+        have.add(v['kana'])
+    need = sorted(courseWords - have)
+    added_course = []
+    if need:
+        # 建一个「任意词形 -> JMdict 条目」的索引，按名字精确找
+        idx = {}
+        for e in entries:
+            for k in list(e['forms']) + list(e['kana']):
+                idx.setdefault(k, []).append(e)
+        for w in need:
+            cands = idx.get(w) or []
+            # 优先选：有中释、词性是实词、不是纯古语
+            best = None
+            for e in cands:
+                info = (jc.get(w)
+                        or next((jc[a] for a in list(e['forms']) + list(e['kana']) if a in jc), None)
+                        or COURSE_GLOSS_FALLBACK.get(w))
+                if not info:
+                    continue
+                badm = {'arch', 'obs', 'obsc', 'rare'}
+                if e['misc'] and all(m in badm for m in e['misc']):
+                    continue
+                pos = pick_pos(e['pos'], info['posCn'])
+                if not pos:
+                    continue
+                best = (e, info, pos)
+                break
+            if not best:
+                log(f'  !! 课程词 {w} 在 JMdict/中日词库里找不到可用条目')
+                continue
+            e, info, pos = best
+            rank = len(vocab) + 1
+            h = hooks.get(w, {})
+            vocab.append({
+                'id': f'v-{rank:04d}', 'jp': w,
+                'kana': info['kana'] or (e['kana'][0] if e['kana'] else w),
+                'romaji': romanize(info['kana'] or (e['kana'][0] if e['kana'] else w)),
+                'cn': info['cn'], 'pos': pos, 'vclass': verb_class(e['pos']),
+                'pitch': info['pitch'], 'videos': 0, 'score': 0.0,
+                'pNews': 0.0, 'pSpoken': 0.0, 'pSubs': 0.0, 'nCorpus': 0,
+                'course': True, 'rank': rank, 'stage': stage_of(min(rank, 400)),
+                'exJp': '', 'exCn': '', 'read': h.get('read', ''), 'hook': h.get('hook', ''),
+            })
+            added_course.append(w)
+        # 给补入的词也配例句
+        for v in vocab[-len(added_course):] if added_course else []:
+            for needle in (v['jp'], v['kana']):
+                for ja, zh in sent_idx:
+                    if needle and needle in ja:
+                        v['exJp'], v['exCn'] = ja, zh
+                        break
+                if v['exJp']:
+                    break
+        log(f'课程词补入 {len(added_course)} 个: {" ".join(added_course)}')
+
     with_ex = sum(1 for v in vocab if v['exJp'])
     with_hook = sum(1 for v in vocab if v['hook'])
     log(f'\n输出 {len(vocab)} 条（{no_cn} 条缺中释被跳过）')
     log(f'带例句 {with_ex} ({with_ex*100//max(len(vocab),1)}%)')
     log(f'带手写记忆钩子 {with_hook}')
+    log(f"课程必需词入选 {sum(1 for v in vocab if v.get('course'))}/{len(courseWords)}")
+    have = set()
+    for v in vocab:
+        have.add(v['jp'])
+        have.add(v['kana'])
+    missing_course = sorted(courseWords - have)
+    if missing_course:
+        log(f'!! 课程词仍未入选 {len(missing_course)} 个: {" ".join(missing_course[:20])}')
     log(f'手写钩子未命中的（不在前 {args.limit} 高频词内）: '
         f'{len([k for k in hooks if k not in seen])} 条')
 

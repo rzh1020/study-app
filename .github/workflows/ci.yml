@@ -41,7 +41,7 @@ jobs:
         run: |
           node -e "
           const fs=require('fs');
-          const expect={kana:{cards:104,rules:18},vocab:{vocab:2000},grammar:{grammar:42},theory:{theory:45}};
+          const expect={kana:{cards:104,rules:18},vocab:{vocab:2021},grammar:{grammar:42},theory:{theory:45}};
           let bad=0;
           for(const [f,arrs] of Object.entries(expect)){
             const j=JSON.parse(fs.readFileSync('data/'+f+'.json','utf8'));
@@ -107,7 +107,8 @@ jobs:
           set -e
           L=$(unzip -l android/build/study-hub.apk)
           for f in assets/index.html assets/js/app.js assets/js/native.js assets/js/ear-levels.js assets/js/translate.js \
-                   assets/js/views/translate.js assets/js/views/sing.js assets/js/jaspeech.js \
+                   assets/js/views/translate.js assets/js/views/sing.js assets/js/jaspeech.js assets/js/views/course.js \
+                   assets/data/course.json assets/data/k2k.json \
                    assets/data/phrases.json assets/audio/manifest.json \
                    assets/data/kana.json assets/data/vocab.json assets/data/plan.json \
                    classes.dex AndroidManifest.xml; do

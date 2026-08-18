@@ -29,7 +29,7 @@ function buildSteps({ jpDue, jpNew, theory, earDone, earTarget, voiceMin, voiceT
     });
   }
   steps.push({
-    id: 'jp', icon: '語', label: '日语卡片', href: '#/review/all',
+    id: 'jp', icon: '語', label: '日语', href: '#/jp',
     sub: jpDue + jpNew > 0 ? `到期 ${jpDue}，新词 ${jpNew}` : '今天做完了',
     done: jpDue + jpNew === 0, weight: 1,
   });

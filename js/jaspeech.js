@@ -87,25 +87,88 @@ export function toKana(text) {
     if (IS_KANA(c)) { out.push(KATA_TO_HIRA(c)); i++; continue; }
     if (!IS_KANJI(c)) {
       // 标点保留（拼读时会转成停顿），其他字符（数字/拉丁）无法朗读
-      if (/[、。！？，,.!?\s]/.test(c)) out.push('、');
+      // 标点只在拼读时转成停顿，不写进假名串（否则显示出来会多个「、」）
+      if (/[、。！？，,.!?\s]/.test(c)) out.push('\u0000');
       else unknown.push(c);
       i++;
       continue;
     }
-    // 汉字：从最长往短试词典
+    // 汉字：从最长往短试词典。
+    //
+    // 关键点：词条常带假名词尾（買った 的词典形是 買う，行くとき 里是 行く），
+    // 所以匹配窗口要允许「汉字 + 后续假名」，否则会切错。
+    // 实测过的两个错例：
+    //   カメラを買った → 「ラを買」被当整体，買 单字读成 ばい
+    //   本を           → 「本を」没命中，退化成单字取了训读 もと（应是 ほん）
+    // 修法：① 片假名已在上面的 IS_KANA 分支处理，不会进这里
+    //       ② 匹配时优先匹配到「汉字块 + 紧随的假名」，命中词典形就整段替换
     let hit = null, len = 0;
-    for (let L = Math.min(k2k.maxLen, chars.length - i); L >= 1; L--) {
+    const maxTry = Math.min(k2k.maxLen, chars.length - i);
+    for (let L = maxTry; L >= 1; L--) {
       const seg = chars.slice(i, i + L).join('');
+      // 只有以汉字开头的段才查词典，避免「ラを買」这种跨界切分
+      if (!IS_KANJI(seg[0])) continue;
       const r = k2k.words.get(seg);
       if (r) { hit = r; len = L; break; }
     }
     if (hit) { out.push(KATA_TO_HIRA(hit)); i += len; continue; }
+
+    // 词典没命中：试动词/形容词活用还原。
+    //
+    // 词典收的是辞书形（買う、食べる、行く），但正文里是活用形（買った、食べました）。
+    // 做法：取连续汉字块 K，逐个试 K+辞书形词尾，命中后用「读音去掉最后一拍」当词干，
+    // 再把原文的假名词尾接回去。
+    //   買った → 试 買う=かう → 词干 か → か + った = かった ✓
+    //   行きます → 试 行く=いく → 词干 い → い + きます = いきます ✓
+    //   食べました → 试 食べる=たべる → 词干 たべ → たべ + ました = たべました ✓
+    // 这不是完整形态分析（不处理音便和不规则），但能覆盖绝大多数常见活用。
+    {
+      let ke = i;
+      while (ke < chars.length && IS_KANJI(chars[ke])) ke++;
+      const K = chars.slice(i, ke).join('');
+      let te = ke;
+      while (te < chars.length && IS_KANA(chars[te])) te++;
+      const tail = chars.slice(ke, te).join('');
+      if (K && tail) {
+        const ENDINGS = ['う', 'く', 'ぐ', 'す', 'つ', 'ぬ', 'ぶ', 'む', 'る', 'い'];
+        for (const end of ENDINGS) {
+          const r = k2k.words.get(K + end);
+          if (!r || r.length < 2) continue;
+          const stem = KATA_TO_HIRA(r).slice(0, -1);
+          // 二类动词（食べる）辞书形是两拍以上的假名尾，词干要多去一位
+          const dictTail = KATA_TO_HIRA(r).slice(-1);
+          if (dictTail !== end) continue;
+          out.push(stem + tail);
+          i = te;
+          break;
+        }
+        if (i === te) continue;
+      }
+    }
+
+    // 再试一次连续汉字块整体（去掉尾部假名的干扰）
+    let kEnd = i;
+    while (kEnd < chars.length && IS_KANJI(chars[kEnd])) kEnd++;
+    const kanjiBlock = chars.slice(i, kEnd).join('');
+    if (kanjiBlock.length > 1) {
+      const r2 = k2k.words.get(kanjiBlock);
+      if (r2) { out.push(KATA_TO_HIRA(r2)); i = kEnd; continue; }
+    }
+    // 单字兜底。注意 KANJIDIC 的首选读音对复合词更准（音读），
+    // 但单字成词时训读更常见 —— 这里无法消歧，所以标记为「推测」告知用户。
     const one = k2k.single.get(c);
     if (one) { out.push(KATA_TO_HIRA(one)); guessed.push(c); i++; continue; }
     unknown.push(c);
     i++;
   }
-  return { kana: out.join(''), exact: guessed.length === 0 && unknown.length === 0, unknown, guessed };
+  // \u0000 是内部停顿标记，对外输出时去掉
+  const joined = out.join('');
+  return {
+    kana: joined.replace(/\u0000/g, ''),
+    kanaWithPause: joined,
+    exact: guessed.length === 0 && unknown.length === 0,
+    unknown, guessed,
+  };
 }
 
 /** 预渲染音频是否覆盖这段文本（整句 或 全部假名都有音节） */
@@ -168,6 +231,7 @@ async function playMora(kana) {
   for (let i = 0; i < chars.length; i++) {
     const c = chars[i];
     const nx = chars[i + 1];
+    if (c === '\u0000') { seq.push({ gap: 0.18 }); continue; }
     if (c === 'っ' || c === 'ッ') { seq.push({ gap: 0.12 }); continue; }
     if (c === 'ー') { const last = seq[seq.length - 1]; if (last && last.f) seq.push({ ...last, rate: 0.8 }); continue; }
     if (!mora[c]) { if (/[、。！？\s]/.test(c)) seq.push({ gap: 0.18 }); continue; }
@@ -216,7 +280,7 @@ export async function speakJa(text, kana, systemSpeak) {
     let src = kana && ![...kana].some(IS_KANJI) ? kana : null;
     if (!src) {
       await loadDict();
-      src = toKana(text).kana;
+      src = toKana(text).kanaWithPause;
     }
     if (src && (await playMora(src))) return 'mora';
   } catch (e) { console.warn('音节拼接失败', e); }

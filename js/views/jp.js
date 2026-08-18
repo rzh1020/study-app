@@ -39,8 +39,26 @@ export async function render(view) {
     </div>`;
   };
 
+  const course = await fetch('./data/course.json').then((r) => r.json()).catch(() => null);
+  const { metaGet } = await import('../db.js');
+  const lessonDone = new Set((await metaGet('lessonDone', [])) || []);
+  const nextLesson = course ? (course.lessons.find((l) => !lessonDone.has(l.id)) || course.lessons[0]) : null;
+
   view.innerHTML = `
-    ${totalDue ? `<a class="btn btn-pri btn-block mb" href="#/review/all">开始今日全部（${totalDue}）</a>`
+    ${nextLesson ? `
+    <a class="hp-next mb" href="#/course/${nextLesson.n}">
+      <div class="hp-next-ic">${nextLesson.n}</div>
+      <div class="hp-next-t">
+        <span>先学 · 第 ${nextLesson.n} / ${course.lessons.length} 课</span>
+        <b>${esc(nextLesson.title)}</b>
+        <i>${esc(nextLesson.pattern)}</i>
+      </div>
+      <div class="hp-next-go">▶</div>
+    </a>
+    <div class="tiny dim center mb" style="margin-top:-8px">
+      已学完 ${lessonDone.size} / ${course.lessons.length} 课 · <a href="#/course">看目录</a>
+    </div>` : ''}
+    ${totalDue ? `<a class="btn btn-pri btn-block mb" href="#/review/all">再练今日全部（${totalDue}）</a>`
       : '<div class="card center small muted">今天的日语卡都清空了。想多学可以进单个牌组预习。</div>'}
     <div class="sec-title">日语</div>
     ${decks.filter((d) => DECKS[d].group === '日语').map(row).join('')}

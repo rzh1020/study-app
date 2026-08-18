@@ -37,12 +37,14 @@ const ASSETS = [
   './js/views/plan.js',
   './js/views/translate.js',
   './js/views/sing.js',
+  './js/views/course.js',
   './data/kana.json',
   './data/vocab.json',
   './data/grammar.json',
   './data/theory.json',
   './data/plan.json',
   './data/phrases.json',
+  './data/course.json',
   './icons/icon.svg',
 ];
 

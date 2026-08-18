@@ -104,8 +104,30 @@ def build_single():
     return out
 
 
+def build_priority():
+    """用已消歧的 2021 词表覆盖 JMdict 的首条目。
+
+    JMdict 里同一个汉字形可能挂多个条目（本 = ほん 书 / もと 根源），
+    我按文件顺序取第一个，结果 本 取到了 もと —— 实测「本をくれた」读成「もとを」。
+    而 data/vocab.json 里的读音是用中日词库消歧过的（见 build_vocab.py 的 entry_score），
+    所以拿它做优先层，比 JMdict 的任意顺序可靠。
+    """
+    p = os.path.join(ROOT, 'data', 'vocab.json')
+    if not os.path.exists(p):
+        return {}
+    voc = json.load(open(p, encoding='utf-8'))['vocab']
+    out = {}
+    for v in voc:
+        if HAS_KANJI.search(v['jp']) and KANA_ONLY.match(v['kana']):
+            out[v['jp']] = v['kana']
+    log(f'优先层（已消歧词表）{len(out)} 条')
+    return out
+
+
 def main():
     words = build_words()
+    prio = build_priority()
+    words.update(prio)   # 优先层覆盖 JMdict
     single = build_single()
     # 单字表里凡是词表已有的就不重复放
     single = {k: v for k, v in single.items() if k not in words}
