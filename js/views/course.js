@@ -16,6 +16,16 @@ import { getQueue, DECKS } from '../store.js';
  *
  * 例句拆解是关键：用户说「看不懂」，就是因为之前只给整句不给成分。
  */
+// 讲解正文里用 **重点** 标记关键概念，直接 esc 会把星号原样显示出来。
+// 这里只支持加粗和分段 —— 讲解是自己生成的数据，不需要完整 Markdown。
+function explainHtml(text) {
+  return String(text || '')
+    .split(/\n+/)
+    .filter((l) => l.trim())
+    .map((l) => `<p>${esc(l).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')}</p>`)
+    .join('');
+}
+
 export async function render(view, { args }) {
   const course = await fetch('./data/course.json').then((r) => r.json());
   const doneSet = new Set((await metaGet('lessonDone', [])) || []);
@@ -111,7 +121,7 @@ async function lessonView(view, course, lesson, doneSet) {
       <div class="ls-pat">${esc(lesson.pattern)}</div>
     </div>
 
-    <div class="card ls-explain">${esc(lesson.explain)}</div>
+    <div class="card ls-explain">${explainHtml(lesson.explain)}</div>
 
     <div class="sec-title">例句 · 点句子听读音</div>
     ${lesson.examples.map((e, i) => `

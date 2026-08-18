@@ -655,3 +655,9 @@ a { color: var(--acc); }
   padding: 12px 13px; background: var(--bg2); border: 1px solid var(--line);
   border-radius: 12px; font-size: 14.5px; }
 .ls-done input { width: auto; }
+
+/* 课程讲解：原来是一大段连续文字，密得不想读。按行分段 + 关键概念加粗，
+   让「先看讲解」这一步真的能看下去。 */
+.ls-explain p { margin: 0 0 9px; line-height: 1.75; }
+.ls-explain p:last-child { margin-bottom: 0; }
+.ls-explain b { color: var(--fg); font-weight: 600; }

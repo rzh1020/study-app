@@ -121,9 +121,23 @@ export async function render(view) {
     stopJa();
     ttsStop();
     if (lang.startsWith('ja')) {
+      // 先走神经语音（Kokoro）：整句合成，有连读和语调。
+      // 内置的音节拼接是最后的兜底 —— 它把假名一个个拼起来，听着很机械。
+      try {
+        const T = await import('../tts.js');
+        T.stop();
+        if (!T.available()) await T.load();
+        if (T.available()) {
+          const r = await T.speak(kana || text);
+          if (!r.cancelled) { lastSpeakHow = 'neural'; return; }
+          return;
+        }
+      } catch (e) {
+        console.warn('神经语音不可用，退回音节拼接', e);
+      }
       const how = await speakJa(text, kana, speak);
       if (how) { lastSpeakHow = how; return; }
-      toast('这句读不出来：不在内置语音里，且系统没有日语引擎', 5000);
+      toast('这句读不出来：语音模型没加载成功，且系统没有日语引擎', 5000);
       return;
     }
     if (speak(text, lang)) return;
@@ -172,6 +186,14 @@ export async function render(view) {
   // 日→中暂时还是短语库，等把反向模型也量化进来再切。
   const nmtDir = () => dir === 'cn2jp';
   setTimeout(() => { if (nmtDir()) nmtReady().catch(() => {}); }, 800);
+  // 语音模型（90MB）晚一点再预热：和翻译模型抢内存与 CPU 会让首屏更慢，
+  // 而用户总是先看到译文、再点朗读。
+  setTimeout(async () => {
+    try {
+      const T = await import('../tts.js');
+      if (!T.available()) T.load();
+    } catch { /* 没有语音模型时会退回音节拼接 */ }
+  }, 2000);
 
   async function runNmt(text) {
     const N = await nmtModule();

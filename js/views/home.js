@@ -63,7 +63,7 @@ export async function render(view) {
     db.byIndex('voice', 'ts', IDBKeyRange.lowerBound(dayStart())),
     db.byIndex('voice', 'kind', IDBKeyRange.only('regression')),
   ]);
-  setTitle('', `<span class="pill ${st.todayDone ? 'ok' : ''}">🔥 ${st.days}</span>`);
+  setTitle('今日', `<span class="pill ${st.todayDone ? 'ok' : ''}">🔥 ${st.days}</span>`);
 
   let jpDue = 0, jpNew = 0;
   for (const [d, s] of Object.entries(stats)) {

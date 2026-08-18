@@ -35,6 +35,9 @@ study-backup-*.json
 # 两者都用 tools/setup_nmt.sh 一键放回工程。
 models/
 vendor/
+.tts/kokoro/
+.tts/wav/
+.tts/misaki_*.py
 .nmt/venv/
 .nmt/opus-mt-tc-big-zh-ja/
 .nmt/onnx-*/

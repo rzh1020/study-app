@@ -38,6 +38,10 @@ async function render() {
   const { name, args, params } = parseHash();
   const loader = routes[name] || routes.home;
 
+  // 先清空标题栏。各视图的 setTitle 往往在 await 之后才调用，
+  // 这中间标题会一直挂着上一页的文字（首页顶上显示「翻译」就是这么来的）。
+  setTitle('');
+
   // 离开上一个视图时释放资源：麦克风不释放会一直亮着录音指示灯并耗电
   if (current && current.destroy) {
     try { current.destroy(); } catch (e) { console.warn('destroy failed', e); }

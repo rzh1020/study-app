@@ -104,10 +104,18 @@ export function toKana(text) {
     //       ② 匹配时优先匹配到「汉字块 + 紧随的假名」，命中词典形就整段替换
     let hit = null, len = 0;
     const maxTry = Math.min(k2k.maxLen, chars.length - i);
-    for (let L = maxTry; L >= 1; L--) {
+    // 只从 2 字往下试，单字留到活用还原之后 —— 单字读音歧义最大，
+    // 让它抢在活用还原前面会出错：撮って 命中单字「撮=うつ」就变成 うつって，
+    // 而正确路径是活用还原（撮る=とる → と + って = とって）。
+    for (let L = maxTry; L >= 2; L--) {
       const seg = chars.slice(i, i + L).join('');
       // 只有以汉字开头的段才查词典，避免「ラを買」这种跨界切分
       if (!IS_KANJI(seg[0])) continue;
+      // 跳过以助词结尾的词条。词典里 今日は=こんにちは 这类是「词+助词」被
+      // 误收成一个词条，一旦命中就把后面的助词吃掉：
+      // 「今日はいい天気」会读成「こんにちは いい天気」。
+      // 句尾例外 —— 那时它确实可能是问候语。
+      if (/[はへを]$/.test(seg) && i + L < chars.length) continue;
       const r = k2k.words.get(seg);
       if (r) { hit = r; len = L; break; }
     }
@@ -115,13 +123,16 @@ export function toKana(text) {
 
     // 词典没命中：试动词/形容词活用还原。
     //
-    // 词典收的是辞书形（買う、食べる、行く），但正文里是活用形（買った、食べました）。
-    // 做法：取连续汉字块 K，逐个试 K+辞书形词尾，命中后用「读音去掉最后一拍」当词干，
-    // 再把原文的假名词尾接回去。
-    //   買った → 试 買う=かう → 词干 か → か + った = かった ✓
-    //   行きます → 试 行く=いく → 词干 い → い + きます = いきます ✓
-    //   食べました → 试 食べる=たべる → 词干 たべ → たべ + ました = たべました ✓
-    // 这不是完整形态分析（不处理音便和不规则），但能覆盖绝大多数常见活用。
+    // 词典收辞书形（撮る、行く、食べる），正文里是活用形（撮って、行きます、
+    // 食べました）。做法：从活用形的假名尾反推辞书形的词尾，查词典拿到读音 R，
+    // 若 R 正好以那个词尾结束，就把 R 去掉词尾当词干、再接回原文的假名尾。
+    //   撮って   → 促音便来自 う/つ/る → 撮る=とる → と + って     = とって
+    //   行きます → 连用形 き 来自 く   → 行く=いく → い + きます   = いきます
+    //   食べました → 直接前缀 べる     → 食べる=たべる → た + べました = たべました
+    //
+    // 为什么不能像以前那样按固定顺序遍历所有词尾：撮 既能组成 撮す(うつす) 也能
+    // 组成 撮る(とる)，谁排在前面谁赢 —— 实测「撮って」就被读成了「うつって」。
+    // 音便规则把候选限制在语法上可能的那几个，才是确定性的。
     {
       let ke = i;
       while (ke < chars.length && IS_KANJI(chars[ke])) ke++;
@@ -130,19 +141,32 @@ export function toKana(text) {
       while (te < chars.length && IS_KANA(chars[te])) te++;
       const tail = chars.slice(ke, te).join('');
       if (K && tail) {
-        const ENDINGS = ['う', 'く', 'ぐ', 'す', 'つ', 'ぬ', 'ぶ', 'む', 'る', 'い'];
-        for (const end of ENDINGS) {
-          const r = k2k.words.get(K + end);
-          if (!r || r.length < 2) continue;
-          const stem = KATA_TO_HIRA(r).slice(0, -1);
-          // 二类动词（食べる）辞书形是两拍以上的假名尾，词干要多去一位
-          const dictTail = KATA_TO_HIRA(r).slice(-1);
-          if (dictTail !== end) continue;
-          out.push(stem + tail);
+        const cands = [];
+        // ① 直接把假名尾的前 1-3 字当辞书形词尾（一段动词 見る/食べる、形容词）
+        for (let n = 1; n <= Math.min(3, tail.length); n++) cands.push(tail.slice(0, n));
+        // ② 五段动词的音便
+        if (/^っ/.test(tail)) cands.push('う', 'つ', 'る');       // 撮って・買った・待って
+        if (/^し/.test(tail)) cands.push('す');                   // 話して
+        if (/^い[てた]/.test(tail)) cands.push('く');              // 書いて
+        if (/^い[でだ]/.test(tail)) cands.push('ぐ');              // 急いで
+        if (/^ん[でだ]/.test(tail)) cands.push('ぬ', 'ぶ', 'む');  // 読んで・飛んで
+        // ③ 连用形：い段假名 → 同行的う段（行き→行く、話し→話す）
+        const I2U = { い: 'う', き: 'く', ぎ: 'ぐ', し: 'す', ち: 'つ',
+                      に: 'ぬ', び: 'ぶ', み: 'む', り: 'る' };
+        if (I2U[tail[0]]) cands.push(I2U[tail[0]]);
+        let done = false;
+        for (const suf of cands) {
+          const r = k2k.words.get(K + suf);
+          if (!r) continue;
+          const R = KATA_TO_HIRA(r);
+          // 读音必须以这个假名尾结束，否则「去掉词尾当词干」不成立
+          if (!R.endsWith(suf) || R.length <= suf.length) continue;
+          out.push(R.slice(0, R.length - suf.length) + tail);
           i = te;
+          done = true;
           break;
         }
-        if (i === te) continue;
+        if (done) continue;
       }
     }
 
@@ -154,7 +178,11 @@ export function toKana(text) {
       const r2 = k2k.words.get(kanjiBlock);
       if (r2) { out.push(KATA_TO_HIRA(r2)); i = kEnd; continue; }
     }
-    // 单字兜底。注意 KANJIDIC 的首选读音对复合词更准（音读），
+    // 单字：先查词典的单字条目（比 KANJIDIC 的首选读音更贴合实际用法），
+    // 这一步被特意放在活用还原之后，见上面循环处的说明。
+    const w1 = k2k.words.get(c);
+    if (w1) { out.push(KATA_TO_HIRA(w1)); i++; continue; }
+    // 再兜底 KANJIDIC。注意它的首选读音对复合词更准（音读），
     // 但单字成词时训读更常见 —— 这里无法消歧，所以标记为「推测」告知用户。
     const one = k2k.single.get(c);
     if (one) { out.push(KATA_TO_HIRA(one)); guessed.push(c); i++; continue; }

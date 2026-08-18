@@ -37,6 +37,20 @@ for f in encoder.int8.onnx decoder_step.int8.onnx spm-src.json vocab-tgt.json nm
   printf '      %-36s %s\n' "$f" "$(du -h "$MODEL_DST/$f" | cut -f1)"
 done
 
+echo "[3/3] 日语语音模型（Kokoro-82M）"
+TTS_SRC=".tts/kokoro"
+TTS_DST="models/kokoro"
+if [ -f "$TTS_SRC/model_quantized.onnx" ]; then
+  mkdir -p "$TTS_DST"
+  for f in model_quantized.onnx tokenizer.json jf_alpha.bin jm_kumo.bin; do
+    cp "$TTS_SRC/$f" "$TTS_DST/"
+  done
+  cp .tts/m2p.json "$TTS_DST/"
+  printf '      %s\n' "$(du -sh "$TTS_DST" | cut -f1)"
+else
+  echo "      !! 未找到语音模型，日语朗读将退回音节拼接"
+  echo "         bash .tts/dl.sh 下载 Kokoro，再跑 .tts/verify.py 生成 m2p.json"
+fi
+
 echo
-echo "合计 $(du -sh "$ORT_DST" "$MODEL_DST" | awk '{s+=$1} END {print}' )"
-du -sh "$ORT_DST" "$MODEL_DST"
+du -sh "$ORT_DST" "$MODEL_DST" "$TTS_DST" 2>/dev/null
