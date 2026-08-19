@@ -241,6 +241,17 @@ export async function speak(kana, opts = {}) {
   return { seconds: +total.toFixed(2), ms, firstSoundMs: first, parts: parts.length };
 }
 
+/** 释放语音合成模型（90MB）。朗读是一次性的，用完就还内存。 */
+export async function unload() {
+  stop();
+  const s = sess;
+  sess = null;
+  loading = null;
+  state.ready = false;
+  cache.clear();
+  if (s) { try { await s.release(); } catch { /* 已经释放了 */ } }
+}
+
 export function stop() {
   playToken = null;
   for (const s of sources) {

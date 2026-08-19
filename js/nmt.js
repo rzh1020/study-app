@@ -92,6 +92,26 @@ export function available(dirName = DEFAULT_DIR) {
   return models.has(dirName);
 }
 
+/**
+ * 释放某个方向的模型，把内存还回去。
+ *
+ * 为什么需要：四套模型（中→日 267MB、日→中 142MB、语音合成 90MB、
+ * 语音识别 77MB）全都常驻会把 WebView 的渲染进程挤爆 —— 实测直接被系统杀掉，
+ * 表现为调试连接 "Target closed"。所以谁在用谁加载，用完还回去。
+ */
+export async function unload(dirName) {
+  const m = models.get(dirName);
+  if (!m) return false;
+  models.delete(dirName);
+  loadings.delete(dirName);
+  state.dirs[dirName] = false;
+  state.ready = models.size > 0;
+  for (const sess of [m.enc, m.dec]) {
+    try { await sess.release(); } catch { /* 已经释放了 */ }
+  }
+  return true;
+}
+
 /** 有哪些方向的模型已经就位，界面据此决定按钮能不能点。 */
 export function readyDirs() {
   return Object.keys(DIRS).filter((d) => models.has(d));

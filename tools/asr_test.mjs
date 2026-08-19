@@ -38,8 +38,12 @@ const out = await page.evaluate(async () => {
   for (const kana of ['これはいくらですか', 'えきへのいきかたをおしえてください']) {
     const s = await T.synth(kana);
     const pcm = A.resample16k(s.pcm instanceof Float32Array ? s.pcm : Float32Array.from(s.pcm), 24000);
-    const r = await A.recognize(pcm);
-    res.cases.push({ said: kana, heard: r.text, lang: r.lang, ms: r.ms, sec: s.seconds });
+    const auto = await A.recognize(pcm);
+    const forced = await A.recognize(pcm, { language: 'ja' });
+    res.cases.push({ said: kana, auto: auto.text, forcedJa: forced.text,
+                     autoMs: auto.ms, forcedMs: forced.ms, sec: s.seconds,
+                     rms: Math.sqrt(pcm.reduce((a, x) => a + x * x, 0) / pcm.length).toFixed(3),
+                     n: pcm.length });
   }
   return res;
 });

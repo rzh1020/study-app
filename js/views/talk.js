@@ -1,6 +1,6 @@
 import { $, esc, toast } from '../ui.js';
 import { setTitle } from '../app.js';
-import { asrStatus, asrStart, asrStop, asrLanguages, speak, ttsStop } from '../native.js';
+import { speak, ttsStop } from '../native.js';
 
 /**
  * 面对面对话。
@@ -8,9 +8,13 @@ import { asrStatus, asrStart, asrStop, asrLanguages, speak, ttsStop } from '../n
  * 场景是两个人拿着同一台手机轮流说话，所以版面上下对开：上半屏给对面的人看
  * （正对他），下半屏给自己看，中间一个说话按钮。
  *
- * 关于「自动识别说话人语言」：系统语音识别必须先指定语言（Android 的
- * SpeechRecognizer 没有语言自动检测），拿中文引擎去听日语只会得到一串谐音汉字。
- * 所以真正的自动检测做不到，这里的做法是：
+ * 识别不走系统的 SpeechRecognizer —— 这台设备的系统语音服务拿不到录音 AppOps
+ * （"AppOps: Operation not found: pkg=com.xiaomi.mibrain.speech op=RECORD_AUDIO"），
+ * isRecognitionAvailable() 返回 true 但一录就报权限错误，反复授权也没用。
+ * 改成自己采音（应用自己的麦克风是好的）+ APK 内的 Whisper 模型识别。
+ *
+ * 关于「自动识别说话人语言」：Whisper 有语言自检，但实测它会把日语听成英文
+ * 并转写成一串谐音英文，不能依赖。所以做法是：
  *   1. 按钮记住上一次说的语言，轮流对话时自然交替
  *   2. 识别出文本后用字符特征复核（有假名一定是日语；全汉字且含中文常用字
  *      判为中文），与按钮语言不符就按复核结果决定翻译方向 —— 点错也能救回来
@@ -33,9 +37,8 @@ export function detectLang(text) {
 
 export async function render(view) {
   setTitle('面对面');
-  const asr = asrStatus();
   let from = 'zh';                 // 这一轮谁在说
-  let jaAsrOk = null;              // 设备是否装了日语识别包，null=还在查
+  let rec = null;                  // 正在进行的录音
   let busy = false;
   const turns = [];                // { from, src, out, kana }
 
@@ -54,25 +57,23 @@ export async function render(view) {
     </div>
   `;
 
-  // 日语识别包是否存在，决定日语按钮能不能用
-  asrLanguages().then(({ langs }) => {
-    jaAsrOk = langs.some((l) => /^ja/i.test(l));
-    if (!langs.length) jaAsrOk = null;   // 查不到就不下结论，让用户试
-    drawHint();
-  });
+  // 识别模型（约 77MB）后台预热，省掉第一次说话时的等待
+  setTimeout(async () => {
+    try {
+      const A = await import('../asr.js');
+      if (!A.available()) { await A.load(); drawHint(); }
+    } catch { /* 加载失败时点说话会给出提示 */ }
+  }, 600);
 
-  function drawHint() {
+  async function drawHint(msg) {
     const h = $('#tkHint');
-    if (!asr.available) {
-      h.innerHTML = `语音识别不可用：${esc(asr.reason)}`;
-      return;
-    }
-    if (jaAsrOk === false) {
-      h.innerHTML = '这台设备没装日语识别包，对方说话识别不了；<br>中文→日语方向正常，日语可以让对方打字';
-      $('#tkJa').disabled = true;
-      return;
-    }
-    h.textContent = asr.offline ? '离线识别，不联网' : '识别可用';
+    if (msg) { h.textContent = msg; return; }
+    try {
+      const A = await import('../asr.js');
+      if (A.state.error) { h.textContent = '识别模型加载失败：' + A.state.error; return; }
+      if (!A.available()) { h.textContent = A.state.loading ? '识别模型载入中…' : '点按钮开始，会先载入识别模型'; return; }
+    } catch { /* 忽略 */ }
+    h.textContent = '全部离线：识别、翻译、朗读都在本机';
   }
 
   function drawWho() {
@@ -108,30 +109,39 @@ export async function render(view) {
     ttsStop();
     try {
       const T = await import('../tts.js');
-      if (!T.available()) await T.load();
-      if (T.available()) { await T.speak(kana || text); return; }
+      if (!T.available()) { drawHint('载入语音…'); await T.load(); }
+      if (T.available()) {
+        const r = await T.speak(kana || text);
+        // 播放是异步排队的，等它放完再释放这 90MB，否则会把正在放的声音掐掉
+        const wait = Math.max(1200, ((r && r.seconds) || 2) * 1000 + 600);
+        setTimeout(() => { T.unload().catch(() => {}); }, wait);
+        return;
+      }
     } catch { /* 落到系统 TTS */ }
     speak(text, 'ja-JP');
   }
 
-  /** 中文 → 日语用神经翻译；日语 → 中文同理（模型都在 APK 里）。 */
+  /**
+   * 中文 → 日语 / 日语 → 中文，模型都在 APK 里。
+   *
+   * 一次只留一个方向：四套模型全常驻会把 WebView 渲染进程挤爆（实测被系统杀掉）。
+   * 换方向要重新加载几秒，但对话是轮流说话，这几秒落在对方开口的间隙里。
+   */
   async function translate(text, dirFrom) {
+    const want = dirFrom === 'zh' ? 'zh2ja' : 'ja2zh';
+    const other = want === 'zh2ja' ? 'ja2zh' : 'zh2ja';
     const N = await import('../nmt.js');
-    if (!N.available(dirFrom === 'zh' ? 'zh2ja' : 'ja2zh')) {
-      await N.load(dirFrom === 'zh' ? 'zh2ja' : 'ja2zh');
+    if (N.available(other)) await N.unload(other);
+    if (!N.available(want)) {
+      drawHint('载入翻译模型…');
+      await N.load(want);
     }
-    const r = await N.translate(text, { beams: 4, dir: dirFrom === 'zh' ? 'zh2ja' : 'ja2zh' });
+    const r = await N.translate(text, { beams: 4, dir: want });
     return r.text;
   }
 
-  async function handle(text, spoken) {
-    // 识别文本复核：假名是硬证据，点错按钮也能救回来
-    const real = detectLang(text) || spoken;
-    if (real !== spoken) {
-      toast(`听起来是${LANGS[real].name}，按${LANGS[real].name}处理`);
-      from = real;
-      drawWho();
-    }
+  async function handle(text, real, retried) {
+    if (retried) toast(`听起来是${LANGS[real].name}，已按${LANGS[real].name}重识别`);
     const out = await translate(text, real);
     let kana = '';
     if (real === 'zh') {
@@ -151,36 +161,48 @@ export async function render(view) {
     drawWho();
   }
 
-  function startListen() {
-    if (busy) { asrStop(); busy = false; $('#tkMic').classList.remove('on'); return; }
-    if (!asr.available) { toast('语音识别不可用：' + asr.reason, 4000); return; }
-    busy = true;
-    $('#tkMic').classList.add('on');
-    $('#tkHint').textContent = '在听…说完停一下就会自动结束';
-    const spoken = from;
-    const ok = asrStart(LANGS[from].tag, {
-      onPartial: (t) => { $('#tkHint').textContent = '听到：' + t; },
-      onResult: async (t) => {
-        busy = false;
-        $('#tkMic').classList.remove('on');
-        if (!t) { drawHint(); return; }
-        $('#tkHint').textContent = '翻译中…';
-        try {
-          await handle(t, spoken);
-          drawHint();
-        } catch (e) {
-          $('#tkHint').textContent = '';
-          toast('翻译失败：' + ((e && e.message) || e), 4000);
-        }
-      },
-      onError: (e) => {
-        busy = false;
-        $('#tkMic').classList.remove('on');
+  async function startListen() {
+    const btn = $('#tkMic');
+    if (busy) return;
+    if (rec) {                       // 第二次点击 = 说完了
+      const r = rec;
+      rec = null;
+      btn.classList.remove('on');
+      busy = true;
+      const spoken = from;
+      try {
+        drawHint('识别中…');
+        const A = await import('../asr.js');
+        const { pcm, seconds } = await r.stop();
+        if (!pcm.length || seconds < 0.3) { busy = false; drawHint('没录到声音'); return; }
+        const heard = await A.recognizeChecked(pcm, spoken);
+        if (!heard.text) { busy = false; drawHint('没听清，再说一次'); return; }
+        drawHint('翻译中…');
+        await handle(heard.text, heard.lang || spoken, heard.retried);
         drawHint();
-        toast('没听清：' + e, 3000);
-      },
-    });
-    if (!ok) { busy = false; $('#tkMic').classList.remove('on'); }
+      } catch (e) {
+        toast('识别失败：' + ((e && e.message) || e), 4000);
+        drawHint();
+      } finally {
+        busy = false;
+      }
+      return;
+    }
+    try {
+      const A = await import('../asr.js');
+      if (!A.available()) {
+        drawHint('第一次要先载入识别模型（约 77MB）…');
+        const ok = await A.load();
+        if (!ok) { toast('识别模型加载失败：' + A.state.error, 5000); return; }
+      }
+      rec = await A.startRecording();
+      btn.classList.add('on');
+      drawHint('在听… 说完再点一下按钮');
+    } catch (e) {
+      toast('打不开麦克风：' + ((e && e.message) || e), 4000);
+      rec = null;
+      btn.classList.remove('on');
+    }
   }
 
   $('#tkMic').onclick = startListen;
@@ -192,7 +214,7 @@ export async function render(view) {
 
   return {
     destroy() {
-      asrStop();
+      if (rec) { rec.stop().catch(() => {}); rec = null; }
       ttsStop();
       import('../tts.js').then((T) => T.stop()).catch(() => {});
     },

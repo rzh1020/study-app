@@ -14,10 +14,10 @@
 // 用 transformers.js 而不像 nmt.js 那样手写推理：Whisper 的官方 ONNX 是
 // 现成量化好的，而且 mel 特征、分词、时间戳解码都由它处理，没必要重做。
 const MODEL = 'whisper-base';
-const MODEL_ROOT = './models/';
+const MODEL_ROOT = '/models/';
 // 单独一份 ORT：transformers.js 自带的 onnxruntime 版本比 nmt.js 用的 1.20.1 新，
 // 需要 asyncify 变体的 wasm，两者不能混用。
-const ORT_DIR = './vendor/ort-tf/';
+const ORT_DIR = '/vendor/ort-tf/';
 // 用 transformers.min.js 而不是 .web.min.js：后者把 onnxruntime-web 当外部
 // 依赖（裸模块名 import），浏览器里解析不了；前者是自包含的。
 const LIB = './vendor/transformers/transformers.min.js';
@@ -35,8 +35,10 @@ async function lib() {
   // 全部本地：这个 App 没有联网权限，任何远程拉取都会失败
   env.allowRemoteModels = false;
   env.allowLocalModels = true;
-  env.localModelPath = new URL(MODEL_ROOT, location.href).href;
-  env.backends.onnx.wasm.wasmPaths = new URL(ORT_DIR, location.href).href;
+  // 必须是「路径」而不是完整 URL：transformers.js 内部会自己做拼接，
+  // 传 http://... 进去会拼坏，表现为读 tokenizer_config.json 得到 undefined。
+  env.localModelPath = MODEL_ROOT;
+  env.backends.onnx.wasm.wasmPaths = ORT_DIR;
   env.backends.onnx.wasm.numThreads = 1;   // WebView 里拿不到 SharedArrayBuffer
   return tf;
 }
@@ -72,6 +74,15 @@ export function load() {
 
 export function available() { return state.ready; }
 
+/** 释放识别模型（77MB）。 */
+export async function unload() {
+  const p = pipe;
+  pipe = null;
+  loading = null;
+  state.ready = false;
+  if (p && p.dispose) { try { await p.dispose(); } catch { /* 已经释放了 */ } }
+}
+
 /** 把任意采样率的单声道 PCM 重采样到 Whisper 要的 16kHz。 */
 export function resample16k(pcm, srcRate) {
   if (srcRate === 16000) return pcm;
@@ -94,7 +105,11 @@ export function resample16k(pcm, srcRate) {
 export async function recognize(pcm16k, opt = {}) {
   if (!state.ready) throw new Error('识别模型未加载');
   const t0 = performance.now();
-  const args = { chunk_length_s: 30, return_timestamps: false };
+  // task 必须显式给 transcribe。默认会走 translate —— Whisper 会把日语
+  // 直接翻成英文（实测「これはいくらですか」变成 "This is Sakura."），
+  // 而我们要的是原文转写，翻译交给后面的 NMT。
+  const args = { task: 'transcribe', chunk_length_s: 30, return_timestamps: false };
+  // language 留空 = 让模型自己判断说的是什么语言，这正是面对面对话需要的
   if (opt.language) args.language = opt.language;
   const r = await pipe(pcm16k, args);
   const text = String((r && r.text) || '').trim();
@@ -103,12 +118,73 @@ export async function recognize(pcm16k, opt = {}) {
 
 /**
  * 从识别结果判断语言。
- * Whisper 内部检测到的语言 transformers.js 不直接回传，但对中日两种语言，
- * 输出文本本身就是最可靠的证据：有假名一定是日语。
+ * Whisper 内部检测到的语言 transformers.js 不直接回传，而实测它对合成语音的
+ * 语言判别并不可靠（日语音频被判成英文，转写出一串谐音英文）。
+ * 好在中日两种语言的输出文本本身就是硬证据：日语正常句子必然带助词假名，
+ * 中文一个假名都不会有。
  */
 export function guessLang(text) {
   const s = String(text || '');
-  if (/[\u3040-\u309f\u30a0-\u30ff]/.test(s)) return 'ja';
-  if (/[\u4e00-\u9fff]/.test(s)) return 'zh';
-  return null;
+  const kana = (s.match(/[\u3040-\u309f\u30a0-\u30ff]/g) || []).length;
+  const cjk = (s.match(/[\u4e00-\u9fff]/g) || []).length;
+  if (!kana && !cjk) return null;
+  return kana / Math.max(1, kana + cjk) > 0.12 ? 'ja' : 'zh';
+}
+
+/**
+ * 指定语言识别，并对结果做一次语言复核。
+ *
+ * 为什么不直接用自动检测：实测 Whisper 的语言自检会把日语听成英文。
+ * 所以由界面给出「这一轮谁在说」，指定语言识别（准确得多）；
+ * 万一说话人和按钮不符（日语按钮说了中文），用文本里的假名比例能看出来，
+ * 这时才用另一种语言重识别一次 —— 只有判错时才付双倍时间。
+ */
+export async function recognizeChecked(pcm16k, preferLang) {
+  const first = await recognize(pcm16k, { language: preferLang });
+  const seen = guessLang(first.text);
+  if (seen && seen !== preferLang) {
+    const second = await recognize(pcm16k, { language: seen });
+    return { ...second, lang: seen, retried: true, firstText: first.text };
+  }
+  return { ...first, lang: seen || preferLang, retried: false };
+}
+
+// ---------- 录音 ----------
+// 用 MediaRecorder 而不是 Mic 那套 AnalyserNode + requestAnimationFrame：
+// 后者是为实时音高显示做的，每帧只取当前分析窗口，帧之间会重叠或漏采，
+// 拼不出完整波形。识别要的是连续、无缺口的音频。
+
+/** 开始录音。返回一个对象，调用它的 stop() 拿到 16kHz 单声道 PCM。 */
+export async function startRecording() {
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+  });
+  const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', '']
+    .find((t) => !t || (window.MediaRecorder && MediaRecorder.isTypeSupported(t)));
+  const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+  const chunks = [];
+  rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+  rec.start();
+  const t0 = performance.now();
+  return {
+    get seconds() { return (performance.now() - t0) / 1000; },
+    async stop() {
+      await new Promise((res) => { rec.onstop = res; rec.stop(); });
+      stream.getTracks().forEach((t) => t.stop());
+      if (!chunks.length) return { pcm: new Float32Array(0), seconds: 0 };
+      const blob = new Blob(chunks, mime ? { type: mime } : undefined);
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const buf = await ctx.decodeAudioData(await blob.arrayBuffer());
+      const ch0 = buf.getChannelData(0);
+      const mono = new Float32Array(ch0.length);
+      if (buf.numberOfChannels > 1) {
+        const ch1 = buf.getChannelData(1);
+        for (let i = 0; i < ch0.length; i++) mono[i] = (ch0[i] + ch1[i]) / 2;
+      } else {
+        mono.set(ch0);
+      }
+      ctx.close();
+      return { pcm: resample16k(mono, buf.sampleRate), seconds: buf.duration };
+    },
+  };
 }
