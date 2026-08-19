@@ -1,6 +1,6 @@
 import { $, esc, toast } from '../ui.js';
 import { setTitle } from '../app.js';
-import { asrStatus, asrStart, asrStop, speak, probeTts, ttsStop, isNative } from '../native.js';
+import { speak, probeTts, ttsStop, isNative } from '../native.js';
 import { load, translate, categories, phrasesOf } from '../translate.js';
 import { importTSV } from '../store.js';
 import { speakJa, stopJa, coverage, loadManifest, stats as jaStats } from '../jaspeech.js';
@@ -28,7 +28,6 @@ export async function render(view) {
   let listening = false;
   let result = null;
   let lastInput = '';
-  const asr = asrStatus();
   const tts = { 'ja-JP': null, 'zh-CN': null };   // null = 还没探测出结果
   const cats = categories();
   let curCat = cats[0] ? cats[0].id : '';
@@ -36,18 +35,17 @@ export async function render(view) {
   const ja = await jaStats();
 
   view.innerHTML = `
-    <div class="card tr-dir">
-      <div class="tr-side" id="sFrom"></div>
-      <button class="tr-swap" id="btnSwap" title="互换">⇄</button>
-      <div class="tr-side" id="sTo"></div>
-    </div>
-
     <div class="card">
-      <textarea id="trIn" rows="2" style="min-height:66px"></textarea>
+      <button class="tr-dir2" id="btnSwap" title="点击互换方向">
+        <span id="sFrom"></span><i>⇄</i><span id="sTo"></span>
+      </button>
+      <div class="tr-inwrap">
+        <textarea id="trIn" rows="2" style="min-height:60px"></textarea>
+        <button class="tr-clear" id="btnClear" title="清空">✕</button>
+      </div>
       <div class="btn-row mt">
-        <button class="btn btn-pri" id="btnGo">翻译</button>
-        <button class="btn btn-ghost" id="btnMic" title="语音输入">🎤</button>
-        <button class="btn btn-ghost" id="btnClear">清空</button>
+        <button class="btn btn-pri grow" id="btnGo">翻译</button>
+        <button class="btn btn-ghost" id="btnMic" title="语音输入">🎤 说话</button>
       </div>
       <div class="tiny dim" id="micHint" style="margin-top:8px"></div>
     </div>
@@ -78,37 +76,61 @@ export async function render(view) {
 
   // ---------- 语音输入 ----------
   function drawMicHint() {
-    const btn = $('#btnMic');
     const hint = $('#micHint');
-    if (!asr.available) {
-      btn.disabled = true;
-      hint.innerHTML = `语音输入不可用：${esc(asr.reason)}。打字翻译不受影响。`;
-      return;
-    }
-    btn.disabled = false;
-    btn.textContent = listening ? '■ 停止' : '🎤 说话';
-    btn.classList.toggle('btn-bad', listening);
-    hint.textContent = listening
-      ? `正在听${DIRS[dir].from}…`
-      : `点麦克风说${DIRS[dir].from}${asr.offline ? '（系统离线识别）' : ''}`;
+    if (!hint) return;
+    hint.textContent = recording
+      ? '在听… 说完再点一下麦克风'
+      : '点麦克风说话，中文日文都行（离线识别，模型自己判语言）';
   }
 
-  $('#btnMic').onclick = () => {
-    if (listening) { asrStop(); listening = false; drawMicHint(); return; }
-    listening = true;
-    drawMicHint();
-    const ok = asrStart(DIRS[dir].asrLang, {
-      onPartial: (t) => { $('#trIn').value = t; $('#micHint').textContent = '听到：' + t; },
-      onResult: (t) => { listening = false; drawMicHint(); $('#trIn').value = t; run(); },
-      onError: (e) => {
-        listening = false;
+  // 语音输入走自带的离线识别（js/asr.js，SenseVoice）。
+  //
+  // 原来用系统的 SpeechRecognizer，但这台设备的系统语音服务拿不到录音 AppOps
+  // （"AppOps: Operation not found: pkg=com.xiaomi.mibrain.speech op=RECORD_AUDIO"），
+  // 一录就报权限错，按钮等于是个摆设。现在和「面对面」共用同一套识别，
+  // 而且模型自己判中日，不需要按方向切换识别语言。
+  let recording = null;
+  $('#btnMic').onclick = async () => {
+    const btn = $('#btnMic');
+    if (recording) {
+      const r = recording;
+      recording = null;
+      btn.classList.remove('on');
+      $('#micHint').textContent = '识别中…';
+      try {
+        const A = await import('../asr.js');
+        const { pcm, seconds } = await r.stop();
+        if (!pcm.length || seconds < 0.3) { drawMicHint(); toast('没录到声音'); return; }
+        const heard = await A.recognize(pcm);
+        if (!heard.text) { drawMicHint(); toast('没听清，再说一次'); return; }
+        // 说的是哪种语言由模型判定，方向跟着它走 —— 说日语就自动切成日→中
+        if (heard.lang && heard.lang !== dir.slice(0, 2)) {
+          dir = heard.lang === 'ja' ? 'jp2cn' : 'cn2jp';
+          drawDir();
+        }
+        $('#trIn').value = heard.text;
         drawMicHint();
-        // 识别失败时把提示留在页面上而不是一闪而过的 toast ——
-        // 这类失败往往是系统侧的，用户需要看清原因才知道该不该重试
-        $('#micHint').innerHTML = `<span style="color:var(--bad)">${esc(e)}</span>`;
-      },
-    });
-    if (!ok) { listening = false; drawMicHint(); }
+        run();
+      } catch (e) {
+        $('#micHint').innerHTML = `<span style="color:var(--bad)">${esc(String((e && e.message) || e))}</span>`;
+      }
+      return;
+    }
+    try {
+      const A = await import('../asr.js');
+      if (!A.available()) {
+        $('#micHint').textContent = '第一次要先载入识别模型…';
+        const okk = await A.load();
+        if (!okk) { $('#micHint').innerHTML = `<span style="color:var(--bad)">${esc(A.state.error || '识别模型加载失败')}</span>`; return; }
+      }
+      recording = await A.startRecording();
+      btn.classList.add('on');
+      $('#micHint').textContent = '在听… 说完再点一下麦克风';
+    } catch (e) {
+      recording = null;
+      btn.classList.remove('on');
+      $('#micHint').innerHTML = `<span style="color:var(--bad)">打不开麦克风：${esc(String((e && e.message) || e))}</span>`;
+    }
   };
 
   // ---------- 朗读 ----------
@@ -140,11 +162,14 @@ export async function render(view) {
           return;
         }
       } catch (e) {
-        console.warn('神经语音不可用，退回音节拼接', e);
+        console.warn('神经语音失败', e);
+        toast('语音合成失败：' + ((e && e.message) || e), 5000);
+        return;
       }
-      const how = await speakJa(text, kana, speak);
-      if (how) { lastSpeakHow = how; return; }
-      toast('这句读不出来：语音模型没加载成功，且系统没有日语引擎', 5000);
+      // 到这里说明神经语音模型没加载成功。剩下的兜底只有假名音节拼接，
+      // 那是一个假名一个假名拼出来的，机械难听 —— 不静默启用它，
+      // 否则听起来像功能退化，而且掩盖了「模型没加载」这个真问题。
+      toast('语音模型没加载成功，这句读不出来。可以退出重进这一页再试', 5000);
       return;
     }
     if (speak(text, lang)) return;
@@ -164,13 +189,14 @@ export async function render(view) {
         <span>打字翻译</span><span style="color:var(--ok)">可用</span>
         <span>朗读日语</span><span style="color:var(--ok)">内置语音</span>
         <span>朗读中文</span>${y(tts['zh-CN'])}
-        <span>语音输入</span>${y(asr.available)}
+        <span>语音输入</span><span style="color:var(--ok)">内置识别</span>
       </div>
       <div class="tiny dim" style="margin-top:7px">
-        日语朗读用的是 App 内置的预渲染语音（${ja.phrases} 条整句 + ${ja.mora} 个假名音节），
-        不依赖系统语音引擎 —— 这台设备的系统引擎不支持日语。
-      </div>
-      ${!asr.available ? `<div class="tiny" style="color:var(--warn);margin-top:7px">${esc(asr.reason)}</div>` : ''}`;
+        翻译、朗读、语音识别都是 App 内置模型，不用系统引擎也不联网。
+        日语朗读优先用预渲染整句（${ja.phrases} 条，音质最好），其余用神经语音合成；
+        语音识别用的是 SenseVoice，中文日文自动判别 ——
+        系统自带的语音服务在这台设备上录不了音，所以没有用它。
+      </div>`;
   }
 
   // ---------- 翻译 ----------
@@ -350,12 +376,11 @@ export async function render(view) {
       b.onclick = () => { curCat = b.dataset.cat; drawCats(); drawPhrases(); };
     });
   }
-  function showInline(el, p) {
-    $('#trPhrases').querySelectorAll('.tr-ph-in').forEach((n) => n.remove());
-    const d = document.createElement('div');
-    d.className = 'tr-ph-in';
-    d.innerHTML = `<b>${esc(p.jp)}</b>${p.kana ? `<i>${esc(p.kana)}</i>` : ''}`;
-    el.appendChild(d);
+  function markPlaying(el) {
+    // 这一条的日语、假名、罗马音本来就在行内显示着，不需要再复述一遍。
+    // 只标出「正在读哪条」就够了。
+    $('#trPhrases').querySelectorAll('.tr-ph.on').forEach((n) => n.classList.remove('on'));
+    el.classList.add('on');
   }
 
   function drawPhrases() {
@@ -383,7 +408,7 @@ export async function render(view) {
         drawOut();
         // 不滚到上方结果区 —— 短语库在页面下部，跳上去会让人丢失位置。
         // 改成就地在这一条下面显示读音，结果区照样更新（滚上去能看到详情）。
-        showInline(el, p);
+        markPlaying(el);
         doSpeak(p.jp, 'ja-JP', p.kana);
       };
     });
@@ -405,5 +430,12 @@ export async function render(view) {
     if (result) drawOut();
   })();
 
-  return { destroy() { asrStop(); ttsStop(); stopJa(); } };
+  return {
+    destroy() {
+      if (recording) { recording.stop().catch(() => {}); recording = null; }
+      ttsStop();
+      stopJa();
+      import('../tts.js').then((T) => T.stop()).catch(() => {});
+    },
+  };
 }

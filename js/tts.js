@@ -177,6 +177,8 @@ export async function synth(kana, opts = {}) {
 // 听感上等待时间从「整句合成完」缩短到「第一小句合成完」。
 const cache = new Map();
 const CACHE_MAX = 24;
+const inflight = new Map();   // 正在合成的句子 → promise，避免同一句被合成两遍
+let chain = Promise.resolve(); // ORT 的 session 不能并发 run，所有推理串成一条链
 
 function splitSentences(kana) {
   const parts = kana.split(/(?<=[。．.、,！!？?])/).map((s) => s.trim()).filter(Boolean);
@@ -193,10 +195,23 @@ async function synthCached(part, speed) {
   const key = `${state.voice}|${speed}|${part}`;
   const hit = cache.get(key);
   if (hit) return hit;
-  const r = await synth(part, { speed });
-  if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value);
-  cache.set(key, r);
-  return r;
+  // 关键：同一句可能同时被两处要求合成 —— 翻译完成后的后台预合成，
+  // 和用户点「朗读」。ORT 的 session 不支持并发 run，两个请求撞在一起会抛错，
+  // 上层就退回音节拼接（机械音）——听起来像功能倒退，其实是并发把好路径打掉了。
+  // 所以：进行中的合成直接复用，且所有推理串行执行。
+  const running = inflight.get(key);
+  if (running) return running;
+  const task = chain.then(() => synth(part, { speed }));
+  chain = task.catch(() => {});      // 链不能因为一次失败就断掉
+  inflight.set(key, task);
+  try {
+    const r = await task;
+    if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value);
+    cache.set(key, r);
+    return r;
+  } finally {
+    inflight.delete(key);
+  }
 }
 
 /** 提前合成好放进缓存，点朗读时就能立刻出声。失败静默 —— 这只是优化。 */
@@ -249,6 +264,8 @@ export async function unload() {
   loading = null;
   state.ready = false;
   cache.clear();
+  inflight.clear();
+  chain = Promise.resolve();
   if (s) { try { await s.release(); } catch { /* 已经释放了 */ } }
 }
 

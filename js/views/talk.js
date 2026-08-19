@@ -56,11 +56,18 @@ export async function render(view) {
     </div>
   `;
 
-  // 识别模型（约 77MB）后台预热，省掉第一次说话时的等待
+  // 进页面就按「用得最早」的顺序预热：识别 → 翻译 → 语音。
+  // 串行而不是并行，避免同时解析几百 MB 把内存峰值推高一倍。
   setTimeout(async () => {
     try {
       const A = await import('../asr.js');
       if (!A.available()) { await A.load(); drawHint(); }
+      const N = await import('../nmt.js');
+      if (!N.available('zh2ja')) await N.load('zh2ja');
+      if (!N.available('ja2zh')) await N.load('ja2zh');
+      const T = await import('../tts.js');
+      if (!T.available()) await T.load();
+      drawHint();
     } catch { /* 加载失败时点说话会给出提示 */ }
   }, 600);
 
@@ -92,7 +99,7 @@ export async function render(view) {
     const them = $('.tk-them');
     const me = $('.tk-me');
 
-    const block = (main, mainSub, heard, heardLabel, replay) => {
+    const block = (main, mainSub, heard, heardLabel, replay, speaking) => {
       if (!main && !heard) return null;
       let h = '';
       if (main) {
@@ -105,13 +112,18 @@ export async function render(view) {
         h += `<div class="tk-heard"><span>${esc(heardLabel)}</span>${esc(heard)}
               <button class="tk-redo" data-redo="1">听错了，重说</button></div>`;
       }
-      if (main && replay) h += '<button class="btn btn-ghost tk-replay">🔊 再读一次</button>';
+      if (main && replay) {
+        h += speaking
+          ? '<div class="tk-speaking">🔊 正在生成语音…</div>'
+          : '<button class="btn btn-ghost tk-replay">🔊 再读一次</button>';
+      }
       return h;
     };
 
     const themHtml = block(
       lastMe ? lastMe.out : '', lastMe ? lastMe.kana : '',
-      lastThem ? lastThem.src : '', 'あなたの発話：', true);
+      lastThem ? lastThem.src : '', 'あなたの発話：', true,
+      !!(lastMe && lastMe.speaking));
     them.innerHTML = themHtml
       || '<div class="tk-empty">把手机转向对方，让他点「日本語」说话</div>';
 
@@ -144,10 +156,7 @@ export async function render(view) {
       const T = await import('../tts.js');
       if (!T.available()) { drawHint('载入语音…'); await T.load(); }
       if (T.available()) {
-        const r = await T.speak(kana || text);
-        // 播放是异步排队的，等它放完再释放这 90MB，否则会把正在放的声音掐掉
-        const wait = Math.max(1200, ((r && r.seconds) || 2) * 1000 + 600);
-        setTimeout(() => { T.unload().catch(() => {}); }, wait);
+        await T.speak(kana || text);
         return;
       }
     } catch { /* 落到系统 TTS */ }
@@ -157,14 +166,15 @@ export async function render(view) {
   /**
    * 中文 → 日语 / 日语 → 中文，模型都在 APK 里。
    *
-   * 一次只留一个方向：四套模型全常驻会把 WebView 渲染进程挤爆（实测被系统杀掉）。
-   * 换方向要重新加载几秒，但对话是轮流说话，这几秒落在对方开口的间隙里。
+   * 两个方向都常驻，不再用完就卸。早先做过互斥卸载，是因为当时还背着 Whisper
+   * 和 transformers.js 那套独立的 onnxruntime（两个 wasm 实例各占一份内存），
+   * 加起来会把渲染进程挤爆。换成 SenseVoice 后识别与翻译共用同一份运行时，
+   * 实测四套模型（识别 229 + 中→日 267 + 日→中 142 + 语音 90）同时驻留没问题，
+   * 于是每轮省掉几秒的加载等待。
    */
   async function translate(text, dirFrom) {
     const want = dirFrom === 'zh' ? 'zh2ja' : 'ja2zh';
-    const other = want === 'zh2ja' ? 'ja2zh' : 'zh2ja';
     const N = await import('../nmt.js');
-    if (N.available(other)) await N.unload(other);
     if (!N.available(want)) {
       drawHint('载入翻译模型…');
       await N.load(want);
@@ -189,10 +199,18 @@ export async function render(view) {
       } catch { /* 没有假名也能显示 */ }
     }
     drawTurns();
-    if (real === 'zh') await sayJa(out, turn.kana);
-    else speak(out, 'zh-CN');
     from = real === 'zh' ? 'ja' : 'zh';
     drawWho();
+    // 不等语音：合成一句要几秒（wasm 单线程，Kokoro 比实时慢），
+    // 但对面已经能看屏幕上的大字了。所以文字立刻给出，语音在后台补上，
+    // 感知等待从「识别+翻译+合成」缩短到「识别+翻译」。
+    if (real === 'zh') {
+      turn.speaking = true;
+      drawTurns();
+      sayJa(out, turn.kana).finally(() => { turn.speaking = false; drawTurns(); });
+    } else {
+      speak(out, 'zh-CN');
+    }
   }
 
   async function startListen() {

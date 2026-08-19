@@ -668,10 +668,6 @@ a { color: var(--acc); }
 .hp-step.done .hp-txt b { font-weight: 500; }
 .hp-txt i { display: block; font-size: 13px; color: var(--fg2); font-style: normal; }
 
-/* 点短语后就地显示读音，不再把页面拽到上方结果区 */
-.tr-ph-in { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--line); }
-.tr-ph-in b { font-size: 17px; }
-.tr-ph-in i { display: block; font-size: 13px; color: var(--fg2); font-style: normal; margin-top: 2px; }
 
 /* 面对面对话：两个人共用一台手机轮流说，所以版面上下对开 ——
    上半屏正对对面的人（内容整体旋转 180 度，他不用把手机拿过去看），
@@ -709,3 +705,19 @@ a { color: var(--acc); }
 .tk-level.on { opacity: 1; }
 .tk-level i { display: block; height: 100%; width: 0%; border-radius: 2px;
   background: var(--pri); transition: width .08s linear; }
+
+.tk-speaking { margin-top: 12px; font-size: 13px; color: var(--fg2); }
+
+/* 翻译页收紧：方向选择原来是两个大框独占一张卡，高度大信息少，
+   压成一行可点的小控件（点一下就互换）。清空从和「翻译」同级的大按钮
+   降级成输入框角上的 ✕ —— 它是低频操作，不该抢主按钮的位置。 */
+.tr-dir2 { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 10px;
+  padding: 5px 12px; border-radius: 999px; border: 1px solid var(--line);
+  background: transparent; color: var(--fg); font-size: 14px; }
+.tr-dir2 i { font-style: normal; color: var(--fg3); }
+.tr-inwrap { position: relative; }
+.tr-clear { position: absolute; right: 8px; top: 8px; width: 26px; height: 26px;
+  border-radius: 50%; border: 1px solid var(--line); background: var(--card);
+  color: var(--fg2); font-size: 13px; line-height: 1; }
+.tr-ph.on { border-color: var(--pri); }
+.tr-ph.on .tr-ph-play { color: var(--pri); }
