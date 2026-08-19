@@ -331,6 +331,8 @@ function fileMode(view, cfg) {
   `;
 
   let file = null;
+  let userSetOff = false;
+  $('#off').oninput = () => { userSetOff = $('#off').value !== '' && +$('#off').value > 0; };
   $('#f').onchange = (e) => {
     file = e.target.files[0] || null;
     $('#btnGo').disabled = !file;
@@ -345,14 +347,30 @@ function fileMode(view, cfg) {
     try {
       const ctx = audioCtx();
       const buf = await ctx.decodeAudioData(await file.arrayBuffer());
-      const off = Math.max(0, +$('#off').value || 0);
+      let off = Math.max(0, +$('#off').value || 0);
       const len = Math.min(40, Math.max(3, +$('#len').value || 20));
-      $('#st').textContent = `解码完成 ${buf.duration.toFixed(1)}s / ${buf.sampleRate}Hz，分析中…`;
+      // 起始时间留空/为 0 时先扫全曲找人声：流行歌前十几秒基本是前奏，
+      // 从第 0 秒硬分析必然「没有稳定音高」—— 那不是算法失灵，是那段真没人声。
+      let scan = null;
+      if (!userSetOff) {
+        $('#st').textContent = `解码完成 ${buf.duration.toFixed(1)}s，正在扫描人声段…`;
+        await sleep(20);
+        scan = await scanVocal(buf, len);
+        if (scan.best) {
+          off = scan.best.t;
+          $('#off').value = Math.round(off);
+        }
+      }
+      $('#st').textContent = `分析 ${fmtTime(off)} 起的 ${len} 秒…`;
       await sleep(30);
       analyzed = analyze(buf, off, len, a4);
       if (!analyzed.track.filter((x) => x.midi !== null).length) {
-        $('#st').innerHTML = '<span style="color:var(--warn)">这段里没提取到稳定音高。'
-          + '换一段人声更突出的（清唱、副歌人声段），或缩短分析时长。</span>';
+        const detail = scan
+          ? `全曲扫了 ${scan.segs.length} 段，人声比例最高的一段是 ${fmtTime(scan.best ? scan.best.t : 0)}`
+            + `（${Math.round((scan.best ? scan.best.ratio : 0) * 100)}%）`
+          : '试试把「从第几秒开始」清空，让它自动找人声段';
+        $('#st').innerHTML = `<span style="color:var(--warn)">这段里没提取到稳定音高。${esc(detail)}。`
+          + '纯乐器、重混音或人声被压得很低的段落提不出旋律，换副歌试试。</span>';
         return;
       }
       $('#st').textContent = '完成';
@@ -370,6 +388,53 @@ function fileMode(view, cfg) {
    *  - 只保留 clarity 高的帧，再用中值滤波去掉八度跳变的毛刺
    *  - 相邻帧音高接近就并成一个音符，过短的音符丢弃（多是辅音/噪声）
    */
+  const fmtTime = (sec) => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
+
+  /**
+   * 扫全曲找人声最明显的一段。
+   *
+   * 为什么必要：默认从第 0 秒分析，而流行歌的前十几秒几乎都是前奏 ——
+   * 那里确实没有人声，于是界面报「没有稳定音高」，看起来像功能坏了。
+   * 这里用粗粒度（大 hop）扫一遍，按「检出到音高的帧占比」给每段打分，
+   * 直接把分析窗口挪到人声最集中的地方。
+   * 只扫前 4 分钟：再长的歌副歌一定已经出现过了，没必要为此多等。
+   */
+  async function scanVocal(buf, lenSec) {
+    const sr = buf.sampleRate;
+    const ch0 = buf.getChannelData(0);
+    const ch1 = buf.numberOfChannels > 1 ? buf.getChannelData(1) : null;
+    const limit = Math.min(ch0.length, Math.floor(240 * sr));
+    const dec = sr >= 32000 ? Math.round(sr / 16000) : 1;
+    const rate = sr / dec;
+    const step = 4;                       // 每 4 秒一段
+    const segs = [];
+    for (let t = 0; t + step * sr <= limit; t += step * sr) {
+      const n = Math.floor(step * sr);
+      const mono = new Float32Array(n);
+      for (let i = 0; i < n; i++) {
+        mono[i] = ch1 ? (ch0[t + i] + ch1[t + i]) / 2 : ch0[t + i];
+      }
+      const sig = dec > 1 ? decimate(mono, dec) : mono;
+      const r = extractMelody(sig, rate, {
+        win: 2048, hop: Math.round(rate * 0.06), minHz: 130, maxHz: 1000,
+      });
+      const voiced = r.filter((x) => x.midi !== null).length;
+      segs.push({ t: t / sr, ratio: r.length ? voiced / r.length : 0 });
+      if (segs.length % 8 === 0) {
+        $('#st').textContent = `扫描人声段… ${fmtTime(t / sr)}`;
+        await sleep(0);                   // 让出主线程，否则界面会卡住
+      }
+    }
+    // 连续若干段一起看：分析窗口有 len 秒，要的是「持续有人声」而不是单点
+    const span = Math.max(1, Math.round(lenSec / step));
+    let best = null;
+    for (let i = 0; i + span <= segs.length; i++) {
+      const avg = segs.slice(i, i + span).reduce((a, x) => a + x.ratio, 0) / span;
+      if (!best || avg > best.ratio) best = { t: segs[i].t, ratio: avg };
+    }
+    return { segs, best };
+  }
+
   function analyze(buf, offSec, lenSec, a4v) {
     const sr = buf.sampleRate;
     const ch0 = buf.getChannelData(0);
