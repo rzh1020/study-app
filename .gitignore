@@ -35,6 +35,7 @@ study-backup-*.json
 # 两者都用 tools/setup_nmt.sh 一键放回工程。
 models/
 vendor/
+.asr/whisper-base/
 .tts/kokoro/
 .tts/wav/
 .tts/misaki_*.py
