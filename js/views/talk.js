@@ -13,13 +13,9 @@ import { speak, ttsStop } from '../native.js';
  * isRecognitionAvailable() 返回 true 但一录就报权限错误，反复授权也没用。
  * 改成自己采音（应用自己的麦克风是好的）+ APK 内的 Whisper 模型识别。
  *
- * 关于「自动识别说话人语言」：Whisper 有语言自检，但实测它会把日语听成英文
- * 并转写成一串谐音英文，不能依赖。所以做法是：
- *   1. 按钮记住上一次说的语言，轮流对话时自然交替
- *   2. 识别出文本后用字符特征复核（有假名一定是日语；全汉字且含中文常用字
- *      判为中文），与按钮语言不符就按复核结果决定翻译方向 —— 点错也能救回来
- *   3. 两个语言按钮始终可见，一键指定
- * 设备上没装日语识别包时，如实把日语按钮禁掉并说明原因，而不是让它点了没反应。
+ * 语言是自动判的：SenseVoice 输出里自带 <|zh|>/<|ja|> 标签，实测对中日判别正确，
+ * 所以点一下就能说，不用先选「我说中文还是日文」。
+ * 下面两个语言按钮只是兜底（想强制指定时用），正常用不到。
  */
 
 const LANGS = {
@@ -37,7 +33,8 @@ export function detectLang(text) {
 
 export async function render(view) {
   setTitle('面对面');
-  let from = 'zh';                 // 这一轮谁在说
+  let from = 'zh';                 // 上一轮是谁在说（只用于兜底）
+  let force = null;                // 非 null = 用户强制指定只听某种语言
   let rec = null;                  // 正在进行的录音
   let busy = false;
   const turns = [];                // { from, src, out, kana }
@@ -46,10 +43,11 @@ export async function render(view) {
     <div class="tk-wrap">
       <div class="tk-side tk-them"><div class="tk-empty">把手机转向对方，让他点下面的「日本語」说话</div></div>
       <div class="tk-mid">
-        <button class="tk-mic" id="tkMic">🎤 <b>点击说话</b><i id="tkWho">中文</i></button>
+        <button class="tk-mic" id="tkMic">🎤 <b>点击说话</b><i id="tkWho">自动识别语言</i></button>
         <div class="tk-langs">
-          <button class="btn btn-ghost" id="tkZh">中文</button>
-          <button class="btn btn-ghost" id="tkJa">日本語</button>
+          <button class="btn btn-ghost" id="tkAuto">自动</button>
+          <button class="btn btn-ghost" id="tkZh">只听中文</button>
+          <button class="btn btn-ghost" id="tkJa">只听日语</button>
         </div>
         <div class="tk-level" id="tkLevel"><i></i></div>
         <div class="tiny dim" id="tkHint"></div>
@@ -74,13 +72,14 @@ export async function render(view) {
       if (A.state.error) { h.textContent = '识别模型加载失败：' + A.state.error; return; }
       if (!A.available()) { h.textContent = A.state.loading ? '识别模型载入中…' : '点按钮开始，会先载入识别模型'; return; }
     } catch { /* 忽略 */ }
-    h.textContent = '全部离线：识别、翻译、朗读都在本机';
+    h.textContent = '全部离线，语言自动判断';
   }
 
   function drawWho() {
-    $('#tkWho').textContent = LANGS[from].name;
-    $('#tkZh').classList.toggle('on', from === 'zh');
-    $('#tkJa').classList.toggle('on', from === 'ja');
+    $('#tkWho').textContent = force ? `只听${LANGS[force].name}` : '自动识别语言';
+    $('#tkAuto').classList.toggle('on', !force);
+    $('#tkZh').classList.toggle('on', force === 'zh');
+    $('#tkJa').classList.toggle('on', force === 'ja');
   }
 
   function drawTurns() {
@@ -174,8 +173,7 @@ export async function render(view) {
     return r.text;
   }
 
-  async function handle(text, real, retried) {
-    if (retried) toast(`听起来是${LANGS[real].name}，已按${LANGS[real].name}重识别`);
+  async function handle(text, real) {
     // 先把识别结果显示出来再去翻译：翻译要一两秒，这段时间里人应该已经能
     // 看到「你被听成了什么」，错了可以直接重说，不用等完。
     const turn = { from: real, src: text, out: '', kana: '' };
@@ -211,10 +209,12 @@ export async function render(view) {
         const A = await import('../asr.js');
         const { pcm, seconds } = await r.stop();
         if (!pcm.length || seconds < 0.3) { busy = false; drawHint('没录到声音'); return; }
-        const heard = await A.recognizeChecked(pcm, spoken);
+        const heard = force
+          ? await A.recognize(pcm, { language: force })
+          : await A.recognizeChecked(pcm, spoken);
         if (!heard.text) { busy = false; drawHint('没听清，再说一次'); return; }
         drawHint('翻译中…');
-        await handle(heard.text, heard.lang || spoken, heard.retried);
+        await handle(heard.text, heard.lang || force || spoken, false);
         drawHint();
       } catch (e) {
         toast('识别失败：' + ((e && e.message) || e), 4000);
@@ -252,8 +252,9 @@ export async function render(view) {
   }
 
   $('#tkMic').onclick = startListen;
-  $('#tkZh').onclick = () => { from = 'zh'; drawWho(); };
-  $('#tkJa').onclick = () => { from = 'ja'; drawWho(); };
+  $('#tkAuto').onclick = () => { force = null; drawWho(); };
+  $('#tkZh').onclick = () => { force = 'zh'; drawWho(); };
+  $('#tkJa').onclick = () => { force = 'ja'; drawWho(); };
   drawWho();
   drawHint();
   drawTurns();

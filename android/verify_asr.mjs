@@ -21,7 +21,7 @@ let pass = 0, fail = 0;
 const ok = (n, c, e = '') => { if (c) { pass++; console.log(`  PASS  ${n}`); }
   else { fail++; console.log(`  FAIL  ${n}  ${e}`); } };
 
-console.log('\n=== 识别模型（Whisper base，APK 内 77MB）===');
+console.log('\n=== 识别模型（SenseVoice-small，APK 内 229MB）===');
 const r = await page.evaluate(async () => {
   const out = {};
   const A = await import('./js/asr.js');
@@ -36,8 +36,9 @@ const r = await page.evaluate(async () => {
   for (const kana of ['これはいくらですか', 'しゃしんをとってもらえますか']) {
     const s = await T.synth(kana);
     const pcm = A.resample16k(s.pcm instanceof Float32Array ? s.pcm : Float32Array.from(s.pcm), 24000);
-    const h = await A.recognizeChecked(pcm, 'ja');
-    out.cases.push({ said: kana, heard: h.text, lang: h.lang, ms: h.ms, retried: h.retried, sec: s.seconds });
+    // 不指定语言：验证模型自己判语言
+    const h = await A.recognize(pcm);
+    out.cases.push({ said: kana, heard: h.text, lang: h.lang, ms: h.ms, sec: s.seconds });
   }
   return out;
 });
@@ -45,7 +46,7 @@ ok('识别模型从 APK 内加载成功', r.load === true, r.err || '');
 if (r.load) {
   console.log(`  INFO  加载耗时 ${r.loadMs}ms`);
   for (const c of r.cases) {
-    console.log(`  说: ${c.said}\n    听成: ${c.heard}   (${c.sec}s 音频 / 识别 ${c.ms}ms${c.retried ? '，复核后重识别' : ''})`);
+    console.log(`  说: ${c.said}\n    听成: ${c.heard}   (${c.sec}s 音频 / 识别 ${c.ms}ms / 判定语言 ${c.lang})`);
   }
   ok('识别出日语文本', r.cases.every((c) => /[\u3040-\u30ff]/.test(c.heard)),
     JSON.stringify(r.cases.map((c) => c.heard)));

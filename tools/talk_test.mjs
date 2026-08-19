@@ -57,10 +57,10 @@ async function main() {
   await sleep(1500);
 
   ok('对话页渲染出说话按钮', (await page.$('#tkMic')) !== null);
-  ok('两个语言按钮都在', (await page.$('#tkZh')) !== null && (await page.$('#tkJa')) !== null);
+  ok('语言选择按钮都在（默认自动）', (await page.$('#tkAuto')) !== null
+    && (await page.$('#tkZh')) !== null && (await page.$('#tkJa')) !== null);
 
-  // 这段音频是日语，所以按「日本語」那一侧说
-  await page.click('#tkJa');
+  // 不指定语言，靠模型自己判 —— 这正是要验证的能力
   console.log('\n=== 载入识别模型并录音 ===');
   await page.click('#tkMic');
   // 等模型加载完并真正开始录音

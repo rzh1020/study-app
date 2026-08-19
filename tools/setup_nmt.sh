@@ -56,21 +56,18 @@ else
   echo "         bash .tts/dl.sh 下载 Kokoro，再跑 .tts/verify.py 生成 m2p.json"
 fi
 
-echo "[4/4] 语音识别（Whisper base）+ transformers.js"
-if [ -f ".asr/whisper-base/onnx/encoder_model_quantized.onnx" ]; then
-  mkdir -p models/whisper-base/onnx vendor/transformers vendor/ort-tf
-  cp .asr/whisper-base/*.json models/whisper-base/
-  cp .asr/whisper-base/onnx/*.onnx models/whisper-base/onnx/
-  cp node_modules/@huggingface/transformers/dist/transformers.min.js vendor/transformers/
-  # transformers.js 自带的 onnxruntime 比 nmt.js 用的 1.20.1 新、要 asyncify 变体，
-  # 两套不能混用，所以单独放一份
-  for f in ort-wasm-simd-threaded.asyncify.wasm ort-wasm-simd-threaded.asyncify.mjs \
-           ort-wasm-simd-threaded.wasm ort-wasm-simd-threaded.mjs; do
-    cp "node_modules/@huggingface/transformers/node_modules/onnxruntime-web/dist/$f" vendor/ort-tf/
-  done
-  printf '      %s\n' "$(du -sh models/whisper-base | cut -f1)"
+echo "[4/4] 语音识别（SenseVoice-small）"
+if [ -f ".asr/sensevoice/model.int8.onnx" ]; then
+  mkdir -p models/sensevoice
+  cp .asr/sensevoice/model.int8.onnx .asr/sensevoice/tokens.txt models/sensevoice/
+  # meta.json（LFR 参数 + CMVN）是从模型 metadata 里抽出来的，前端要用
+  if [ ! -f models/sensevoice/meta.json ]; then
+    echo "      !! 缺 models/sensevoice/meta.json，用 .nmt/venv 跑一次抽取："
+    echo "         见 README 的「语音识别模型」一节"
+  fi
+  printf '      %s\n' "$(du -sh models/sensevoice | cut -f1)"
 else
-  echo "      !! 未找到识别模型，面对面对话不可用（bash .asr/dl.sh 下载）"
+  echo "      !! 未找到识别模型，面对面对话不可用（bash .asr/dl_sv.sh 下载）"
 fi
 
 echo
