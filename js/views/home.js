@@ -1,7 +1,7 @@
 import { esc } from '../ui.js';
 import { setTitle } from '../app.js';
 import { deckStats, getConfig, streak, todayReviewCount, DECKS } from '../store.js';
-import { db, dayStart, dayKey } from '../db.js';
+import { db, dayStart } from '../db.js';
 
 /**
  * 首页 = 单一路径。
@@ -90,7 +90,7 @@ export async function render(view) {
   const pct = Math.round((doneCount / Math.max(required.length, 1)) * 100);
 
   view.innerHTML = `
-    <div class="hp-top">
+    <a class="hp-top" href="#/plan">
       <div class="hp-ring" style="--p:${pct}">
         <span>${pct}<i>%</i></span>
       </div>
@@ -98,7 +98,8 @@ export async function render(view) {
         <b>${st.todayDone ? '今天已经开始了' : '今天还没开始'}</b>
         <span>连续 ${st.days} 天 · 复习 ${revToday} 次 · 今日 ${doneCount}/${required.length} 项</span>
       </div>
-    </div>
+      <div class="hp-top-go">计划 ›</div>
+    </a>
 
     ${next ? `
     <a class="hp-next" href="${next.href}">
@@ -123,21 +124,16 @@ export async function render(view) {
       ${steps.map((s, i) => {
         const isNext = next && s.id === next.id;
         const cls = s.done ? 'done' : isNext ? 'cur' : s.optional ? 'opt' : '';
+        // 已完成的项不再重复说明文字：那一行的信息量只剩「做过了」，
+        // 留着只是把当前该做的事挤下去。
+        const sub = s.done ? '' : `<i>${esc(s.sub)}</i>`;
         return `<a class="hp-step ${cls}" href="${s.href}">
           <span class="hp-line ${i === 0 ? 'first' : ''} ${i === steps.length - 1 ? 'last' : ''}"></span>
           <span class="hp-dot">${s.done ? '✓' : esc(s.icon)}</span>
-          <span class="hp-txt"><b>${esc(s.label)}</b><i>${esc(s.sub)}</i></span>
+          <span class="hp-txt"><b>${esc(s.label)}</b>${sub}</span>
           ${s.optional && !s.done ? '<span class="hp-opt">可选</span>' : ''}
         </a>`;
       }).join('')}
     </div>
-
-    <div class="hp-more">
-      <a href="#/plan"><b>计划</b><i>第几周该做什么</i></a>
-      <a href="#/translate"><b>翻译</b><i>说一句，出日语</i></a>
-      <a href="#/data"><b>数据</b><i>进度与设置</i></a>
-    </div>
-
-    <div class="tiny dim center" style="margin-top:16px">${dayKey()}</div>
   `;
 }

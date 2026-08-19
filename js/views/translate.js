@@ -195,6 +195,17 @@ export async function render(view) {
     } catch { /* 没有语音模型时会退回音节拼接 */ }
   }, 2000);
 
+  // 后台把译文的语音合成好。失败静默 —— 这只是把等待挪到用户读译文的时间里。
+  async function prewarmSpeech(text, kana) {
+    try {
+      const T = await import('../tts.js');
+      if (!T.available()) await T.load();
+      if (T.available()) await T.prewarm(kana || text);
+      const sp = $('#btnSpeak');
+      if (sp && sp.dataset.label) sp.textContent = sp.dataset.label;
+    } catch { /* 没有语音模型时会退回音节拼接 */ }
+  }
+
   async function runNmt(text) {
     const N = await nmtModule();
     const ok = await nmtReady();
@@ -223,8 +234,10 @@ export async function render(view) {
       try {
         result = await runNmt(text);
         drawOut();
-        const lang = 'ja-JP';
-        if (result.speakText) doSpeak(result.speakText, lang, result.kana);
+        // 不自动朗读：神经语音在手机上合成一整句要 5-10 秒（比实时还慢），
+        // 自动播等于让人干等。改成后台先合成好放进缓存，
+        // 等用户看完译文点「朗读」时立刻出声。
+        prewarmSpeech(result.text, result.kana);
         return;
       } catch (e) {
         // 模型出问题不能让页面变砖：退回短语库，并把原因如实说出来
@@ -279,7 +292,21 @@ export async function render(view) {
       </div>
     </div>`;
     const sp = $('#btnSpeak');
-    if (sp) sp.onclick = () => doSpeak(r.speakText || r.text, lang, r.kana);
+    if (sp) {
+      sp.dataset.label = sp.textContent;
+      sp.onclick = async () => {
+        // 若后台还没合成完，点下去会等几秒 —— 必须让按钮显示出「在做事」，
+        // 否则看起来像没反应。
+        sp.textContent = '⏳ 生成语音';
+        sp.disabled = true;
+        try {
+          await doSpeak(r.speakText || r.text, lang, r.kana);
+        } finally {
+          sp.textContent = sp.dataset.label;
+          sp.disabled = false;
+        }
+      };
+    }
     $('#btnSave').onclick = () => saveCard(r);
   }
 

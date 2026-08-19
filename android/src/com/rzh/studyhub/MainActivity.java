@@ -15,6 +15,7 @@ import android.view.WindowManager;
 import android.webkit.ConsoleMessage;
 import android.webkit.JavascriptInterface;
 import android.webkit.PermissionRequest;
+import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
@@ -60,6 +61,9 @@ public class MainActivity extends Activity {
     private static final String TAG = "StudyHub";
     private static final String ORIGIN = "https://appassets.androidplatform.net";
     private static final int REQ_MIC = 1001;
+    private static final int REQ_FILE = 1002;
+    // 文件选择器的回调必须存起来：选完文件才能把结果回给网页
+    private ValueCallback<Uri[]> filePathCallback;
     private static final int REQ_EXPORT = 2001;
     private static final int REQ_IMPORT = 2002;
 
@@ -146,6 +150,36 @@ public class MainActivity extends Activity {
         });
 
         web.setWebChromeClient(new WebChromeClient() {
+            /**
+             * WebView 里的 <input type="file"> 默认是死的 —— 点了完全没反应，
+             * 因为宿主必须自己起文件选择器。带唱功能要加载手机里的音乐，
+             * 就卡在这里。
+             *
+             * 用 FileChooserParams.createIntent() 而不是自己拼 Intent：
+             * 网页上的 accept="audio/*" 和 multiple 属性会被它带过去，
+             * 这样系统选择器只列音频文件。走 SAF 拿到的是授权过的 content:// URI，
+             * 所以不需要申请存储权限（本 App 一个权限都不想多要）。
+             */
+            @Override
+            public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback,
+                                             FileChooserParams params) {
+                if (filePathCallback != null) {
+                    // 上一次没走完就又点了：必须回一个 null，否则 WebView 会永久
+                    // 认为选择器还开着，之后再点都没反应。
+                    filePathCallback.onReceiveValue(null);
+                }
+                filePathCallback = callback;
+                try {
+                    startActivityForResult(params.createIntent(), REQ_FILE);
+                    return true;
+                } catch (Exception e) {
+                    Log.w(TAG, "打不开文件选择器: " + e);
+                    filePathCallback = null;
+                    Toast.makeText(MainActivity.this, "打不开文件选择器", Toast.LENGTH_SHORT).show();
+                    return false;
+                }
+            }
+
             @Override
             public void onPermissionRequest(final PermissionRequest request) {
                 boolean wantsMic = false;
@@ -235,6 +269,15 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int req, int result, Intent data) {
         super.onActivityResult(req, result, data);
+        if (req == REQ_FILE) {
+            if (filePathCallback == null) return;
+            // 用户取消时也必须回一个 null，否则 WebView 会一直认为选择器还开着，
+            // 之后点 <input type="file"> 都没反应。
+            filePathCallback.onReceiveValue(result == RESULT_OK
+                    ? WebChromeClient.FileChooserParams.parseResult(result, data) : null);
+            filePathCallback = null;
+            return;
+        }
         if (req == REQ_EXPORT) {
             if (result == RESULT_OK && data != null && data.getData() != null && pendingExportBytes != null) {
                 try {

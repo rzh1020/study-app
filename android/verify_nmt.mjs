@@ -79,6 +79,40 @@ if (load.okk) {
   ok('输出是日语', res.filter((r) => /[\u3040-\u30ff]/.test(r.text)).length >= res.length - 1);
   console.log(`  INFO  平均 ${Math.round(total / res.length)}ms/句`);
 }
+console.log('\n=== 日语神经语音（Kokoro int8 90MB）===');
+const tts = await page.evaluate(async () => {
+  const T = await import('./js/tts.js');
+  const J = await import('./js/jaspeech.js');
+  const t0 = performance.now();
+  const okk = await T.load();
+  const loadMs = Math.round(performance.now() - t0);
+  if (!okk) return { okk, loadMs, err: T.state.error };
+  await J.loadDict();
+  const out = [];
+  for (const text of ['これはいくらですか', '駅への行き方を教えてください。',
+                      'チケットをキャンセルしたいのですが、手数料はかかりますか?']) {
+    const kana = J.toKana(text).kana;
+    const t1 = performance.now();
+    const r = await T.synth(kana);
+    out.push({ text, kana, phonemes: r.phonemes, seconds: r.seconds,
+               ms: Math.round(performance.now() - t1), unknown: r.unknown.length });
+  }
+  return { okk, loadMs, out };
+});
+ok('语音模型从 APK 内加载成功', tts.okk === true, tts.err || '');
+if (tts.okk) {
+  console.log(`  INFO  加载耗时 ${tts.loadMs}ms`);
+  for (const r of tts.out) {
+    console.log(`  ${r.text}\n    ${r.phonemes}\n    音频 ${r.seconds}s  合成 ${r.ms}ms`);
+  }
+  ok('每句都合成出音频', tts.out.every((r) => r.seconds > 0.3));
+  ok('没有无法发音的字符', tts.out.every((r) => r.unknown === 0));
+  ok('助词 は 读作 wa', /korewa/.test(tts.out[0].phonemes), tts.out[0].phonemes);
+  ok('助词 へ 读作 e', /ekie/.test(tts.out[1].phonemes), tts.out[1].phonemes);
+  const avg = Math.round(tts.out.reduce((a, r) => a + r.ms, 0) / tts.out.length);
+  console.log(`  INFO  手机合成速度 平均 ${avg}ms/句（整句，未分句）`);
+}
+
 ok('无页面错误', errors.length === 0, errors.slice(0, 2).join(' | '));
 
 console.log(`\n结果: ${pass} passed, ${fail} failed`);

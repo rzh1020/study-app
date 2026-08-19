@@ -584,13 +584,6 @@ a { color: var(--acc); }
   border: 1px solid var(--line); border-radius: 999px; flex: none;
 }
 
-.hp-more { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 20px; }
-.hp-more a {
-  padding: 11px 10px; border-radius: 12px; text-decoration: none; color: inherit;
-  background: var(--bg2); border: 1px solid var(--line); text-align: center;
-}
-.hp-more a b { display: block; font-size: 14px; font-weight: 600; }
-.hp-more a i { display: block; font-size: 10.5px; font-style: normal; color: var(--fg3); margin-top: 1px; }
 
 .ear-rest { margin-top: 10px; }
 .ear-rest > summary {
@@ -661,3 +654,16 @@ a { color: var(--acc); }
 .ls-explain p { margin: 0 0 9px; line-height: 1.75; }
 .ls-explain p:last-child { margin-bottom: 0; }
 .ls-explain b { color: var(--fg); font-weight: 600; }
+
+/* 首页收紧。原来一屏里同一件事出现三遍：底部 tab、路径列表、还有一排入口方块；
+   加上每行都带说明文字，必须滚动才能看完。这里做三件事：
+   把状态条本身变成进「计划」的入口（删掉那排重复方块后它就没入口了）、
+   压缩路径行高、让「现在做这个」在视觉上真的比其他行重。 */
+.hp-top { display: flex; align-items: center; gap: 14px; text-decoration: none; color: inherit; }
+.hp-top-go { margin-left: auto; font-size: 13px; color: var(--fg2); white-space: nowrap; }
+.hp-next { border-color: var(--pri); background: linear-gradient(180deg,
+    color-mix(in srgb, var(--pri) 16%, transparent), transparent); }
+.hp-step { padding-top: 7px; padding-bottom: 7px; }
+.hp-step.done { opacity: .5; }
+.hp-step.done .hp-txt b { font-weight: 500; }
+.hp-txt i { display: block; font-size: 13px; color: var(--fg2); font-style: normal; }
