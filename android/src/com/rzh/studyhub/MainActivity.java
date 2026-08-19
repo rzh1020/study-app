@@ -2,6 +2,8 @@ package com.rzh.studyhub;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
@@ -536,6 +538,43 @@ public class MainActivity extends Activity {
             // 而 JSON 只接受双引号，混用会让网页侧 JSON.parse 直接抛错。
             return "{\"available\":" + ok + ",\"offline\":" + (ok && offline)
                     + ",\"reason\":\"" + jsonEscape(reason) + "\"}";
+        }
+
+        /**
+         * 查系统语音识别支持哪些语言。
+         *
+         * 为什么需要：对话模式要同时识别中文和日文，但设备上装了哪些离线语言包
+         * 是不确定的 —— 直接 asrStart("ja-JP") 若不支持只会回一个笼统的错误码。
+         * ACTION_GET_LANGUAGE_DETAILS 这个 ordered broadcast 能拿到完整列表，
+         * 于是界面可以如实告诉用户哪个方向能用语音。
+         */
+        @JavascriptInterface
+        public void asrLanguages() {
+            try {
+                Intent i = new Intent(RecognizerIntent.ACTION_GET_LANGUAGE_DETAILS);
+                sendOrderedBroadcast(i, null, new BroadcastReceiver() {
+                    @Override
+                    public void onReceive(Context c, Intent it) {
+                        Bundle b = getResultExtras(true);
+                        ArrayList<String> langs = b == null ? null
+                                : b.getStringArrayList(RecognizerIntent.EXTRA_SUPPORTED_LANGUAGES);
+                        String pref = b == null ? null
+                                : b.getString(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE);
+                        StringBuilder sb = new StringBuilder("[");
+                        if (langs != null) {
+                            for (int k = 0; k < langs.size(); k++) {
+                                if (k > 0) sb.append(",");
+                                sb.append(jsStr(langs.get(k)));
+                            }
+                        }
+                        sb.append("]");
+                        toJs("window.__asrLangs && window.__asrLangs(" + sb + "," + jsStr(pref) + ")");
+                    }
+                }, null, Activity.RESULT_OK, null, null);
+            } catch (Exception e) {
+                Log.w(TAG, "查识别语言失败: " + e);
+                toJs("window.__asrLangs && window.__asrLangs([], null)");
+            }
         }
 
         @JavascriptInterface

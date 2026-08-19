@@ -22,6 +22,7 @@ encoder 长度不一致时会走「重新计算 cross KV」分支。给 cross pa
 收益：20 步解码的总计算量从 ~24G MAC 降到 ~5G MAC。
 """
 import json
+import os
 import pathlib
 import sys
 
@@ -29,9 +30,9 @@ import torch
 from transformers import MarianMTModel
 
 HERE = pathlib.Path(__file__).parent
-SRC = HERE / "opus-mt-tc-big-zh-ja"
-OUT = HERE / "out-zh-ja"
-FP32 = HERE / "onnx-cache-fp32"
+SRC = HERE / os.environ.get("NMT_SRC", "opus-mt-tc-big-zh-ja")
+OUT = HERE / os.environ.get("NMT_OUT", "out-zh-ja")
+FP32 = HERE / os.environ.get("NMT_CACHE_FP32", "onnx-cache-fp32")
 
 
 class DecStep(torch.nn.Module):

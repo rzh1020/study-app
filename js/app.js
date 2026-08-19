@@ -14,10 +14,12 @@ const routes = {
   translate: () => import('./views/translate.js'),
   sing: () => import('./views/sing.js'),
   course: () => import('./views/course.js'),
+  talk: () => import('./views/talk.js'),
 };
 
 const TAB_OF = { home: 'home', jp: 'jp', review: 'jp', ear: 'ear', voice: 'voice',
-  data: 'data', plan: 'home', translate: 'translate', sing: 'voice', course: 'jp' };
+  data: 'data', plan: 'home', translate: 'translate', sing: 'voice', course: 'jp',
+  talk: 'translate' };
 
 let current = null;
 

@@ -31,10 +31,14 @@ if [ ! -f "$MODEL_SRC/encoder.int8.onnx" ]; then
   echo "     . .nmt/venv/bin/activate && python .nmt/export.py && python .nmt/export_cache.py"
   exit 1
 fi
-mkdir -p "$MODEL_DST"
-for f in encoder.int8.onnx decoder_step.int8.onnx spm-src.json vocab-tgt.json nmt.json; do
-  cp "$MODEL_SRC/$f" "$MODEL_DST/"
-  printf '      %-36s %s\n' "$f" "$(du -h "$MODEL_DST/$f" | cut -f1)"
+for pair in "out-zh-ja:zh-ja" "out-ja-zh:ja-zh"; do
+  src=".nmt/${pair%%:*}"; dst="models/${pair##*:}"
+  [ -f "$src/encoder.int8.onnx" ] || { echo "      !! 缺 $src，跳过"; continue; }
+  mkdir -p "$dst"
+  for f in encoder.int8.onnx decoder_step.int8.onnx spm-src.json vocab-tgt.json nmt.json; do
+    cp "$src/$f" "$dst/"
+  done
+  printf '      %-14s %s\n' "$dst" "$(du -sh "$dst" | cut -f1)"
 done
 
 echo "[3/3] 日语语音模型（Kokoro-82M）"

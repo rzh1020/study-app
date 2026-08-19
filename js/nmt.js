@@ -15,18 +15,20 @@
 //      piece id（实测正确），vocab.json 完全弃用。
 // 也就是说：手写的只是分词与解码这层胶水，翻译能力来自成熟 NMT 模型本身。
 
-const MODEL_DIR = './models/zh-ja';
+// 两个方向各一套模型：中→日是 opus-mt-tc-big-zh-ja（d=1024），
+// 日→中是 opus-mt-ja-zh（d=512，体积只有一半）。
+const DIRS = {
+  zh2ja: { dir: './models/zh-ja', label: '中→日' },
+  ja2zh: { dir: './models/ja-zh', label: '日→中' },
+};
+const DEFAULT_DIR = 'zh2ja';
 const ORT_DIR = './vendor/ort';
 
-let ort = null;      // onnxruntime-web 命名空间
-let enc = null;      // encoder session
-let dec = null;      // decoder session
-let cfg = null;      // eos / pad / decoder_start / max_new_tokens
-let src = null;      // { pieces, scores, unk, trie }
-let tgt = null;      // id → piece
-let loading = null;  // 进行中的加载 promise，防止并发重复加载
+let ort = null;             // onnxruntime-web 命名空间
+const models = new Map();   // 方向 → { enc, dec, cfg, src, tgt }
+const loadings = new Map(); // 方向 → 进行中的加载 promise，防止并发重复加载
 
-export const state = { ready: false, loading: false, error: null, ms: 0 };
+export const state = { ready: false, loading: false, error: null, ms: 0, dirs: {} };
 
 // ---------- 加载 ----------
 
@@ -46,41 +48,53 @@ async function loadOrt() {
   return ort;
 }
 
-/** 加载模型。280MB，首次约数秒；重复调用共用同一个 promise。 */
-export function load() {
-  if (loading) return loading;
+/**
+ * 加载某个方向的模型。中→日约 280MB，日→中约 190MB，首次几秒。
+ * 同方向重复调用共用一个 promise；两个方向各自独立，用哪个加载哪个。
+ */
+export function load(dirName = DEFAULT_DIR) {
+  if (loadings.has(dirName)) return loadings.get(dirName);
+  const conf = DIRS[dirName];
+  if (!conf) return Promise.resolve(false);
   state.loading = true;
-  loading = (async () => {
+  const task = (async () => {
     const t0 = performance.now();
     try {
       const o = await loadOrt();
-      const [c, s, t] = await Promise.all([
-        fetch(`${MODEL_DIR}/nmt.json`).then((r) => r.json()),
-        fetch(`${MODEL_DIR}/spm-src.json`).then((r) => r.json()),
-        fetch(`${MODEL_DIR}/vocab-tgt.json`).then((r) => r.json()),
+      const base = conf.dir;
+      const [c, sp, tg] = await Promise.all([
+        fetch(`${base}/nmt.json`).then((r) => r.json()),
+        fetch(`${base}/spm-src.json`).then((r) => r.json()),
+        fetch(`${base}/vocab-tgt.json`).then((r) => r.json()),
       ]);
-      cfg = c;
-      tgt = t;
-      src = buildTokenizer(s);
       const opt = { executionProviders: ['wasm'], graphOptimizationLevel: 'all' };
-      // 顺序加载而不是并行：两张图加起来 280MB，同时解析会把内存峰值推高一倍。
-      enc = await o.InferenceSession.create(`${MODEL_DIR}/encoder.int8.onnx`, opt);
-      dec = await o.InferenceSession.create(`${MODEL_DIR}/decoder_step.int8.onnx`, opt);
-      state.ready = true;
+      // 顺序加载而不是并行：两张图加起来上百 MB，同时解析会把内存峰值推高一倍。
+      const enc = await o.InferenceSession.create(`${base}/encoder.int8.onnx`, opt);
+      const dec = await o.InferenceSession.create(`${base}/decoder_step.int8.onnx`, opt);
+      models.set(dirName, { enc, dec, cfg: c, tgt: tg, src: buildTokenizer(sp) });
+      state.ready = true;                    // 至少有一个方向可用
+      state.dirs[dirName] = true;
       state.ms = Math.round(performance.now() - t0);
       return true;
     } catch (e) {
       state.error = String(e && e.message ? e.message : e);
+      state.dirs[dirName] = false;
       return false;
     } finally {
       state.loading = false;
     }
   })();
-  return loading;
+  loadings.set(dirName, task);
+  return task;
 }
 
-export function available() {
-  return state.ready;
+export function available(dirName = DEFAULT_DIR) {
+  return models.has(dirName);
+}
+
+/** 有哪些方向的模型已经就位，界面据此决定按钮能不能点。 */
+export function readyDirs() {
+  return Object.keys(DIRS).filter((d) => models.has(d));
 }
 
 // ---------- 分词：SentencePiece Unigram ----------
@@ -101,7 +115,10 @@ function buildTokenizer(s) {
   return { map, scores: s.scores, unk: s.unk, maxLen };
 }
 
-export function encode(text) {
+export function encode(text, dirName = DEFAULT_DIR) {
+  const m = models.get(dirName);
+  if (!m) throw new Error('模型未加载');
+  const { src, cfg } = m;
   const t = '\u2581' + text.trim().replace(/\s+/g, '\u2581');
   const n = t.length;
   // best[i] = 切到第 i 个字符为止的最优得分；prev[i] = 上一个切点；pid[i] = 该段的 piece id
@@ -136,8 +153,10 @@ export function encode(text) {
   return ids;
 }
 
-/** target piece 拼回文本。▁ 是词首标记，日语不写空格所以直接丢掉。 */
-export function decodePieces(ids) {
+/** target piece 拼回文本。▁ 是词首标记，日语不写空格所以直接丢掉；
+ *  中文同理不需要空格。 */
+export function decodePieces(ids, dirName = DEFAULT_DIR) {
+  const tgt = (models.get(dirName) || {}).tgt || [];
   let out = '';
   for (const i of ids) {
     const p = i >= 0 && i < tgt.length ? tgt[i] : '';
@@ -184,12 +203,15 @@ function softmaxTop(logits, vocab, k) {
  * batch=1 在 wasm 单线程下反正也吃不到批量并行的好处。
  */
 export async function translate(text, opts = {}) {
-  if (!state.ready) throw new Error('模型未加载');
+  const dirName = opts.dir || DEFAULT_DIR;
+  const m = models.get(dirName);
+  if (!m) throw new Error(`${(DIRS[dirName] || {}).label || dirName} 模型未加载`);
+  const { enc, dec, cfg } = m;
   const beams = opts.beams || 4;
   const maxNew = opts.maxNewTokens || cfg.max_new_tokens;
   const t0 = performance.now();
 
-  const ids = encode(text);
+  const ids = encode(text, dirName);
   const len = ids.length;
   const inputIds = new ort.Tensor('int64', BigInt64Array.from(ids, BigInt), [1, len]);
   const mask = new ort.Tensor('int64', BigInt64Array.from(new Array(len).fill(1), BigInt), [1, len]);
@@ -250,6 +272,6 @@ export async function translate(text, opts = {}) {
   }
   finished.sort((a, b) => b.score - a.score);
   const ms = Math.round(performance.now() - t0);
-  return { text: decodePieces(finished[0].seq), ms, beams,
-           alts: finished.slice(1, 3).map((f) => decodePieces(f.seq)) };
+  return { text: decodePieces(finished[0].seq, dirName), ms, beams, dir: dirName,
+           alts: finished.slice(1, 3).map((f) => decodePieces(f.seq, dirName)) };
 }

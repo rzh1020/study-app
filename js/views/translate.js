@@ -21,7 +21,7 @@ const DIRS = {
  * 所以打字输入是唯一稳定通路，必须放主位；语音和朗读按实测能力决定是否呈现。
  */
 export async function render(view) {
-  setTitle('翻译');
+  setTitle('翻译', '<a class="pill" href="#/talk">面对面</a>');
   await load();
 
   let dir = 'cn2jp';
@@ -121,8 +121,15 @@ export async function render(view) {
     stopJa();
     ttsStop();
     if (lang.startsWith('ja')) {
-      // 先走神经语音（Kokoro）：整句合成，有连读和语调。
-      // 内置的音节拼接是最后的兜底 —— 它把假名一个个拼起来，听着很机械。
+      // 分三层，按「又快又好」排序：
+      //   1. 预渲染录音：短语库那 127 句有现成音频，瞬时播放且是完整录音
+      //   2. 神经语音：任意句子都能读，但手机上一整句要 5-10 秒
+      //   3. 音节拼接：一个假名一个假名拼，机械，只当最后兜底
+      // 之前这里无条件走神经语音，结果连短语库的句子也要等合成 —— 是退步。
+      if (coverage(text, kana) === 'phrase') {
+        const how = await speakJa(text, kana, speak);
+        if (how) { lastSpeakHow = how; return; }
+      }
       try {
         const T = await import('../tts.js');
         T.stop();
@@ -343,6 +350,14 @@ export async function render(view) {
       b.onclick = () => { curCat = b.dataset.cat; drawCats(); drawPhrases(); };
     });
   }
+  function showInline(el, p) {
+    $('#trPhrases').querySelectorAll('.tr-ph-in').forEach((n) => n.remove());
+    const d = document.createElement('div');
+    d.className = 'tr-ph-in';
+    d.innerHTML = `<b>${esc(p.jp)}</b>${p.kana ? `<i>${esc(p.kana)}</i>` : ''}`;
+    el.appendChild(d);
+  }
+
   function drawPhrases() {
     const list = phrasesOf(curCat);
     $('#trPhrases').innerHTML = list.map((p, i) => `
@@ -366,8 +381,10 @@ export async function render(view) {
           speakText: p.jp, speakLang: 'ja-JP',
         };
         drawOut();
+        // 不滚到上方结果区 —— 短语库在页面下部，跳上去会让人丢失位置。
+        // 改成就地在这一条下面显示读音，结果区照样更新（滚上去能看到详情）。
+        showInline(el, p);
         doSpeak(p.jp, 'ja-JP', p.kana);
-        $('#trOut').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       };
     });
   }

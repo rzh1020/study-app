@@ -138,6 +138,26 @@ let _asrHandlers = null;
  * @param {{onPartial?:(t:string)=>void, onResult:(t:string)=>void, onError:(e:string)=>void}} cb
  * @returns {boolean} 是否成功启动
  */
+/**
+ * 查系统语音识别支持哪些语言（例如设备上有没有装日语离线包）。
+ * 对话模式要双向听说，不能假设 ja-JP 一定可用 —— 拿到真实列表才能如实提示。
+ * 非原生环境或查询失败时返回空数组。
+ */
+export function asrLanguages(timeout = 2500) {
+  return new Promise((resolve) => {
+    if (!B || !B.asrLanguages) { resolve({ langs: [], pref: null }); return; }
+    let done = false;
+    const finish = (langs, pref) => {
+      if (done) return;
+      done = true;
+      resolve({ langs: langs || [], pref: pref || null });
+    };
+    window.__asrLangs = (langs, pref) => finish(langs, pref);
+    try { B.asrLanguages(); } catch { finish([], null); }
+    setTimeout(() => finish([], null), timeout);
+  });
+}
+
 export function asrStart(lang, cb) {
   _asrHandlers = cb;
   if (isNative && typeof B.asrStart === 'function') {

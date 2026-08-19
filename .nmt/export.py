@@ -18,13 +18,14 @@
   out-zh-ja/nmt.json         解码所需的形状/特殊 token 配置
 """
 import json
+import os
 import pathlib
 import sys
 
 HERE = pathlib.Path(__file__).parent
-SRC = HERE / "opus-mt-tc-big-zh-ja"
-FP32 = HERE / "onnx-fp32"
-OUT = HERE / "out-zh-ja"
+SRC = HERE / os.environ.get("NMT_SRC", "opus-mt-tc-big-zh-ja")
+FP32 = HERE / os.environ.get("NMT_FP32", "onnx-fp32")
+OUT = HERE / os.environ.get("NMT_OUT", "out-zh-ja")
 CASES = ["这个多少钱", "请问车站怎么走", "我想要一份不要辣的", "可以用手机支付吗",
          "我明天早上八点要退房", "这附近有没有便宜又好吃的拉面店",
          "我对花生过敏，这个里面有花生吗", "不好意思，能帮我拍张照吗"]
@@ -32,6 +33,41 @@ CASES = ["这个多少钱", "请问车站怎么走", "我想要一份不要辣�
 
 def mb(p):
     return f"{p.stat().st_size / 1e6:.1f}MB"
+
+
+def step_export():
+    """导 encoder 的 fp32 ONNX。
+    不用 optimum-cli：它按 text2text-generation-with-past 会连带导出三张 decoder
+    图（各几百 MB），而 decoder 我们用 export_cache.py 自己导带 KV cache 的版本，
+    那三张图一张都用不上。"""
+    import torch
+    from transformers import MarianMTModel
+
+    FP32.mkdir(parents=True, exist_ok=True)
+    dst = FP32 / "encoder_model.onnx"
+    if dst.exists():
+        print(f"{dst.name} 已存在 {mb(dst)}，跳过")
+        return
+
+    class Enc(torch.nn.Module):
+        def __init__(self, e):
+            super().__init__()
+            self.e = e
+
+        def forward(self, input_ids, attention_mask):
+            return self.e(input_ids=input_ids, attention_mask=attention_mask).last_hidden_state
+
+    m = MarianMTModel.from_pretrained(str(SRC)).eval()
+    ids = torch.tensor([[10, 20, 30, 2]])
+    mask = torch.ones_like(ids)
+    with torch.no_grad():
+        torch.onnx.export(Enc(m.get_encoder()), (ids, mask), str(dst),
+                          input_names=["input_ids", "attention_mask"],
+                          output_names=["last_hidden_state"],
+                          dynamic_axes={"input_ids": {1: "src"}, "attention_mask": {1: "src"},
+                                        "last_hidden_state": {1: "src"}},
+                          opset_version=14, do_constant_folding=True)
+    print("  fp32", mb(dst))
 
 
 def step_quantize():
@@ -44,8 +80,8 @@ def step_quantize():
     # 官方的解法是 decoder_model_merged，但那张图整体裹在 If 里，量化器不进子图，
     # 量化后体积一点不降。所以这里退一步：不用 cache，每步把已生成的整段序列
     # 重新喂进去。句子只有二三十个 token，O(n²) 的代价换掉一张 156MB 的图。
-    for src, dst in [("encoder_model.onnx", "encoder.int8.onnx"),
-                     ("decoder_model.onnx", "decoder.int8.onnx")]:
+    # 只量化 encoder：decoder 走 export_cache.py 导出的带 KV cache 版本
+    for src, dst in [("encoder_model.onnx", "encoder.int8.onnx")]:
         s, d = FP32 / src, OUT / dst
         if d.exists():
             print(f"{dst} 已存在 {mb(d)}，跳过")
