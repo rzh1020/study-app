@@ -124,9 +124,9 @@ export async function render(view) {
       ${steps.map((s, i) => {
         const isNext = next && s.id === next.id;
         const cls = s.done ? 'done' : isNext ? 'cur' : s.optional ? 'opt' : '';
-        // 已完成的项不再重复说明文字：那一行的信息量只剩「做过了」，
-        // 留着只是把当前该做的事挤下去。
-        const sub = s.done ? '' : `<i>${esc(s.sub)}</i>`;
+        // 两种情况不重复说明文字：已完成的（信息量只剩「做过了」）、
+        // 以及当前这一项 —— 上面「现在做这个」那张卡已经把同一句话写过一遍了。
+        const sub = (s.done || isNext) ? '' : `<i>${esc(s.sub)}</i>`;
         return `<a class="hp-step ${cls}" href="${s.href}">
           <span class="hp-line ${i === 0 ? 'first' : ''} ${i === steps.length - 1 ? 'last' : ''}"></span>
           <span class="hp-dot">${s.done ? '✓' : esc(s.icon)}</span>
