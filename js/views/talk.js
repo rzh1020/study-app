@@ -51,6 +51,7 @@ export async function render(view) {
           <button class="btn btn-ghost" id="tkZh">中文</button>
           <button class="btn btn-ghost" id="tkJa">日本語</button>
         </div>
+        <div class="tk-level" id="tkLevel"><i></i></div>
         <div class="tiny dim" id="tkHint"></div>
       </div>
       <div class="tk-side tk-me"><div class="tk-empty">点「中文」说一句，会翻成日语显示在上面并读出来</div></div>
@@ -83,26 +84,59 @@ export async function render(view) {
   }
 
   function drawTurns() {
-    // 对方那半屏要倒过来显示（他正对着手机顶部），所以两侧各取各自最后一条
+    // 两侧各显示两样东西：对方说的话的译文（大字，是这一侧的人要读的），
+    // 以及这一侧的人自己刚被听成了什么（小字回显）。
+    // 没有这个回显，识别错了只会看到一句莫名其妙的译文，
+    // 分不清是听错了还是翻错了。
     const lastThem = [...turns].reverse().find((t) => t.from === 'ja');
     const lastMe = [...turns].reverse().find((t) => t.from === 'zh');
     const them = $('.tk-them');
     const me = $('.tk-me');
-    // 上半屏 = 给对方看的内容：他说的话（原文）+ 我说的话翻成日语
-    const themText = lastMe ? lastMe.out : '';
-    const themSub = lastMe ? lastMe.kana || '' : '';
-    them.innerHTML = themText
-      ? `<div class="tk-big">${esc(themText)}</div>
-         ${themSub ? `<div class="tk-sub">${esc(themSub)}</div>` : ''}
-         <button class="btn btn-ghost tk-replay" data-side="them">🔊 再读一次</button>`
-      : '<div class="tk-empty">把手机转向对方，让他点「日本語」说话</div>';
-    // 下半屏 = 给我看的：对方说的话翻成中文
-    me.innerHTML = lastThem
-      ? `<div class="tk-big">${esc(lastThem.out)}</div>
-         <div class="tk-sub">${esc(lastThem.src)}</div>`
-      : '<div class="tk-empty">点「中文」说一句，会翻成日语显示在上面并读出来</div>';
+
+    const block = (main, mainSub, heard, heardLabel, replay) => {
+      if (!main && !heard) return null;
+      let h = '';
+      if (main) {
+        h += `<div class="tk-big">${esc(main)}</div>`;
+        if (mainSub) h += `<div class="tk-sub">${esc(mainSub)}</div>`;
+      } else {
+        h += '<div class="tk-sub">对方还没说话</div>';
+      }
+      if (heard) {
+        h += `<div class="tk-heard"><span>${esc(heardLabel)}</span>${esc(heard)}
+              <button class="tk-redo" data-redo="1">听错了，重说</button></div>`;
+      }
+      if (main && replay) h += '<button class="btn btn-ghost tk-replay">🔊 再读一次</button>';
+      return h;
+    };
+
+    const themHtml = block(
+      lastMe ? lastMe.out : '', lastMe ? lastMe.kana : '',
+      lastThem ? lastThem.src : '', 'あなたの発話：', true);
+    them.innerHTML = themHtml
+      || '<div class="tk-empty">把手机转向对方，让他点「日本語」说话</div>';
+
+    const meHtml = block(
+      lastThem ? lastThem.out : '', '',
+      lastMe ? lastMe.src : '', '听到你说：', false);
+    me.innerHTML = meHtml
+      || '<div class="tk-empty">点「中文」说一句，会翻成日语显示在上面并读出来</div>';
+
     const rp = view.querySelector('.tk-replay');
     if (rp && lastMe) rp.onclick = () => sayJa(lastMe.out, lastMe.kana);
+    view.querySelectorAll('[data-redo]').forEach((btn) => {
+      btn.onclick = () => {
+        // 丢掉这一侧最后一轮，重新说 —— 比让人对着错译文干瞪眼有用
+        const side = btn.closest('.tk-them') ? 'ja' : 'zh';
+        for (let i = turns.length - 1; i >= 0; i--) {
+          if (turns[i].from === side) { turns.splice(i, 1); break; }
+        }
+        from = side;
+        drawWho();
+        drawTurns();
+        startListen();
+      };
+    });
   }
 
   async function sayJa(text, kana) {
@@ -142,21 +176,23 @@ export async function render(view) {
 
   async function handle(text, real, retried) {
     if (retried) toast(`听起来是${LANGS[real].name}，已按${LANGS[real].name}重识别`);
+    // 先把识别结果显示出来再去翻译：翻译要一两秒，这段时间里人应该已经能
+    // 看到「你被听成了什么」，错了可以直接重说，不用等完。
+    const turn = { from: real, src: text, out: '', kana: '' };
+    turns.push(turn);
+    drawTurns();
     const out = await translate(text, real);
-    let kana = '';
+    turn.out = out;
     if (real === 'zh') {
       try {
         const J = await import('../jaspeech.js');
         await J.loadDict();
-        kana = J.toKana(out).kana;
+        turn.kana = J.toKana(out).kana;
       } catch { /* 没有假名也能显示 */ }
     }
-    turns.push({ from: real, src: text, out, kana });
     drawTurns();
-    // 翻成日语的要读给对方听；翻成中文的读给自己听
-    if (real === 'zh') await sayJa(out, kana);
+    if (real === 'zh') await sayJa(out, turn.kana);
     else speak(out, 'zh-CN');
-    // 轮流：下一次默认换成另一方说
     from = real === 'zh' ? 'ja' : 'zh';
     drawWho();
   }
@@ -198,6 +234,16 @@ export async function render(view) {
       rec = await A.startRecording();
       btn.classList.add('on');
       drawHint('在听… 说完再点一下按钮');
+      // 实时电平：没有它，用户不知道麦克风到底有没有在收音
+      const bar = $('#tkLevel');
+      bar.classList.add('on');
+      const tick = () => {
+        if (!rec) { bar.classList.remove('on'); bar.firstElementChild.style.width = '0%'; return; }
+        const v = Math.min(1, rec.level * 3.5);
+        bar.firstElementChild.style.width = `${Math.round(v * 100)}%`;
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
     } catch (e) {
       toast('打不开麦克风：' + ((e && e.message) || e), 4000);
       rec = null;

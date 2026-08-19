@@ -166,11 +166,35 @@ export async function startRecording() {
   rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
   rec.start();
   const t0 = performance.now();
+  // 顺便挂一个分析节点读实时电平：录音时界面要能显示「确实在收音」，
+  // 否则用户唯一的反馈就是等几秒后出来一句错的识别结果。
+  let mon = null;
+  let tmp = null;
+  let an = null;
+  try {
+    mon = new (window.AudioContext || window.webkitAudioContext)();
+    an = mon.createAnalyser();
+    an.fftSize = 1024;
+    mon.createMediaStreamSource(stream).connect(an);
+    tmp = new Float32Array(an.fftSize);
+  } catch { /* 拿不到电平不影响录音 */ }
   return {
     get seconds() { return (performance.now() - t0) / 1000; },
+    /** 当前输入电平 0..1，用来画电平条 */
+    get level() {
+      if (!an) return 0;
+      an.getFloatTimeDomainData(tmp);
+      let peak = 0;
+      for (let i = 0; i < tmp.length; i++) {
+        const v = Math.abs(tmp[i]);
+        if (v > peak) peak = v;
+      }
+      return peak;
+    },
     async stop() {
       await new Promise((res) => { rec.onstop = res; rec.stop(); });
       stream.getTracks().forEach((t) => t.stop());
+      if (mon) { try { await mon.close(); } catch { /* 已经关了 */ } }
       if (!chunks.length) return { pcm: new Float32Array(0), seconds: 0 };
       const blob = new Blob(chunks, mime ? { type: mime } : undefined);
       const ctx = new (window.AudioContext || window.webkitAudioContext)();

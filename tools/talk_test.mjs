@@ -68,13 +68,22 @@ async function main() {
     () => /在听/.test((document.querySelector('#tkHint') || {}).textContent || ''),
     { timeout: 300000 });
   console.log('  已开始录音，采 4 秒');
-  await sleep(4000);
+  await sleep(1200);
+  const lvl = await page.evaluate(() => {
+    const b = document.querySelector('#tkLevel');
+    return { on: b && b.classList.contains('on'), w: b && b.firstElementChild.style.width };
+  });
+  console.log(`  录音电平条: 显示=${lvl.on} 宽度=${lvl.w}`);
+  ok('录音时显示输入电平', lvl.on === true, JSON.stringify(lvl));
+  await sleep(2800);
   await page.click('#tkMic');          // 第二次点击 = 说完
   console.log('  识别+翻译中…');
+  // 等译文真的出现，而不是等状态文字消失 —— 状态还会经过「载入翻译模型…」
+  // （内存受限，一次只留一个翻译方向，换向要重新加载）
   await page.waitForFunction(
     () => {
-      const t = (document.querySelector('#tkHint') || {}).textContent || '';
-      return !/识别中|翻译中|在听/.test(t);
+      const me = (document.querySelector('.tk-me') || {}).innerText || '';
+      return /[\u4e00-\u9fff]/.test(me) && !/点「中文」说一句/.test(me);
     }, { timeout: 900000 });
   await sleep(500);
 
@@ -90,6 +99,10 @@ async function main() {
   // 说的是日语，所以「给我看」的那半屏应该出现中文译文
   ok('识别并翻译出了内容', /[\u4e00-\u9fff]/.test(shown.me) && !/点「中文」说一句/.test(shown.me),
     shown.me.slice(0, 60));
+  // 识别原文必须回显，否则用户没法判断是听错还是翻错
+  ok('把识别到的原文回显给说话人', /あなたの発話|听到你说/.test(shown.them + shown.me),
+    (shown.them + '|' + shown.me).slice(0, 100));
+  ok('提供「听错了，重说」', (await page.$('[data-redo]')) !== null);
   ok('译文不是空的', shown.me.replace(/\s/g, '').length > 2, shown.me);
   ok('无页面错误', errors.length === 0, errors.slice(0, 2).join(' | '));
 

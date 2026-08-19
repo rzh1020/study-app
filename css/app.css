@@ -695,3 +695,17 @@ a { color: var(--acc); }
 .tk-mic.on i { color: rgba(255,255,255,.85); }
 .tk-langs { display: flex; gap: 8px; }
 .tk-langs .btn.on { border-color: var(--pri); color: var(--pri); }
+
+/* 识别结果回显：不给这个的话，识别错了只会看到一句莫名其妙的译文，
+   分不清是听错还是翻错。 */
+.tk-heard { margin-top: 10px; font-size: 13px; color: var(--fg2);
+  border-top: 1px dashed var(--line); padding-top: 8px; }
+.tk-heard span { color: var(--fg3); margin-right: 4px; }
+.tk-redo { margin-left: 8px; padding: 2px 8px; font-size: 12px; border-radius: 999px;
+  border: 1px solid var(--line); background: transparent; color: var(--fg2); }
+/* 录音电平条：证明麦克风确实在收音 */
+.tk-level { width: 140px; height: 4px; border-radius: 2px; background: var(--line);
+  opacity: 0; transition: opacity .2s; }
+.tk-level.on { opacity: 1; }
+.tk-level i { display: block; height: 100%; width: 0%; border-radius: 2px;
+  background: var(--pri); transition: width .08s linear; }
