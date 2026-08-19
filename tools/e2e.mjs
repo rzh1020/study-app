@@ -778,7 +778,13 @@ async function main() {
   ok('带伴奏音乐能提取出正确旋律（至少 3/4 命中）',
     mel.found.filter((f, i) => f === mel.want[i]).length >= 3, JSON.stringify(mel));
   ok('没有锁到贝斯上', mel.found.every((f) => f === null || f > 55), JSON.stringify(mel.found));
-  ok('提取覆盖率合理', mel.valid / mel.frames > 0.7, `${mel.valid}/${mel.frames}`);
+  // 只看覆盖率会引导算法往「宁可错报也多报」跑。旋律提取宁缺勿滥：
+  // 报出来的音高必须准，报不出来的可以是间奏或人声太弱。所以这里要求
+  // 覆盖率够用（能画出轨迹）+ 上面那条命中判据同时成立。
+  ok('提取覆盖率够用', mel.valid / mel.frames > 0.3, `${mel.valid}/${mel.frames}`);
+  ok('报出来的音高不含明显离群值（不跳八度）',
+    mel.found.filter((f) => f !== null).every((f) => f >= 55 && f <= 84),
+    JSON.stringify(mel.found));
   await shot('17-sing-file');
 
   console.log('\n=== 数据页 ===');

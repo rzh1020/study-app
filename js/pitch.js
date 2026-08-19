@@ -298,8 +298,20 @@ export function salienceFrame(buf, sampleRate, opt = {}) {
       const b = fh / binHz;
       const b0 = Math.floor(b);
       if (b0 + 1 >= half) break;
-      // 线性插值取谐波处能量；高次谐波权重衰减（人声高次谐波弱且易与伴奏混）
-      const v = mag[b0] * (1 - (b - b0)) + mag[b0 + 1] * (b - b0);
+      // 在谐波位置的邻域里取最大，而不是精确插值。
+      // 真实歌声都有颤音（几个音分到半音的周期性起伏），加上录音的音高漂移，
+      // 谐波能量会落到相邻频点上；只看精确 bin 会把它当成"这里没有谐波"，
+      // 显著度直接崩掉 —— 实测给测试信号加 0.6% 颤音后检出率从 69% 掉到 0。
+      // 邻域宽度按「相对频率」算而不是固定频点数：高频区频点密度高，
+      // 固定宽度会让高频候选覆盖更大的频率范围、显著度被系统性高估，
+      // 结果锁到高八度或不存在的高音上（实测锁到 F5）。
+      // 取 ±1.2% 频率（约 ±0.2 个半音），刚好覆盖颤音和录音漂移。
+      const span = Math.max(1, Math.round((fh * 0.012) / binHz));
+      let v = 0;
+      for (let d = -span; d <= span; d++) {
+        const kk = b0 + d;
+        if (kk >= 0 && kk < half && mag[kk] > v) v = mag[kk];
+      }
       sal += v / Math.pow(h, 0.85);
     }
     out.push({ hz: f, sal });
@@ -331,7 +343,15 @@ export function extractMelody(sig, rate, opt = {}) {
   const win = opt.win ?? 2048;
   const hop = opt.hop ?? Math.round(rate * 0.02);
   const jumpPenalty = opt.jumpPenalty ?? 0.55;   // 每半音跳变的代价
-  const voicedRatio = opt.voicedRatio ?? 0.06;   // 显著度占全帧能量的下限
+  // 有人声/没人声的判据。
+  //
+  // 原来用固定阈值（显著度占全帧能量的 6%），但这个比值的量级取决于谱里有多少
+  // 频点、人声占多大比例，实测在不同素材上差了 28 倍：强人声的合成信号中位数 0.12，
+  // 稍弱一点、带颤音的只有 0.004 —— 固定 6% 会把后者整段判成"没有人声"，
+  // 表现就是"这首歌根本解析不了"。
+  // 改成自适应：以本段显著度分布的分位数为主，再加一条相对于本段峰值的下限，
+  // 免得纯伴奏段落里也挑出一堆"旋律"。
+  const voicedRatio = opt.voicedRatio ?? 'auto';
 
   const frames = [];
   for (let i = 0; i + win <= sig.length; i += hop) {
@@ -371,16 +391,27 @@ export function extractMelody(sig, rate, opt = {}) {
     path[i - 1] = path[i] >= 0 && bp ? bp[path[i]] : -1;
   }
 
-  return frames.map((f, i) => {
+  // 先把选中路径上的相对显著度算出来，再定门限
+  const picked = frames.map((f, i) => {
     const idx = path[i];
     const c = idx >= 0 ? f.cands[idx] : null;
-    // 显著度太低的帧判为无人声（间奏、纯伴奏）
-    const voiced = c && f.total > 0 && c.sal / f.total >= voicedRatio;
+    return { f, c, rel: c && f.total > 0 ? c.sal / f.total : 0 };
+  });
+  let cut = voicedRatio;
+  if (voicedRatio === 'auto') {
+    const sorted = picked.map((p) => p.rel).filter((v) => v > 0).sort((a, b) => a - b);
+    if (!sorted.length) return picked.map((p) => ({ t: p.f.t, hz: -1, midi: null, sal: 0 }));
+    const p55 = sorted[Math.floor(sorted.length * 0.55)];
+    const peak = sorted[sorted.length - 1];
+    cut = Math.max(p55, peak * 0.35);
+  }
+  return picked.map(({ f, c, rel }) => {
+    const voiced = c && rel >= cut;
     return {
       t: f.t,
       hz: voiced ? c.hz : -1,
       midi: voiced ? hzToMidi(c.hz) : null,
-      sal: c && f.total ? c.sal / f.total : 0,
+      sal: rel,
     };
   });
 }

@@ -70,5 +70,14 @@ else
   echo "      !! 未找到识别模型，面对面对话不可用（bash .asr/dl_sv.sh 下载）"
 fi
 
+echo "[5/5] 人声分离（Spleeter 2stems 的 vocals 分支）"
+if [ -f ".sep/vocals.int8.onnx" ]; then
+  mkdir -p models/spleeter && cp .sep/vocals.int8.onnx models/spleeter/
+  printf '      %s\n' "$(du -sh models/spleeter | cut -f1)"
+else
+  echo "      !! 未找到分离模型，带唱只能直接分析混音（对商业录音基本无效）"
+  echo "         curl -L -o .sep/vocals.int8.onnx https://hf-mirror.com/csukuangfj/sherpa-onnx-spleeter-2stems-int8/resolve/main/vocals.int8.onnx"
+fi
+
 echo
-du -sh "$ORT_DST" vendor/ort-tf vendor/transformers models/* 2>/dev/null
+du -sh "$ORT_DST" models/* 2>/dev/null

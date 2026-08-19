@@ -301,10 +301,13 @@ function fileMode(view, cfg) {
   view.innerHTML = `
     <div class="card">
       <h3>从手机里的音频提取旋律</h3>
-      <div class="small muted mb">选一段音频（mp3 / m4a / wav / flac 都行），
-      <b>带伴奏的正常歌曲可以直接用</b>。提取用的是频域谐波显著度 + 频谱白化，
-      能在鼓和贝斯里把人声主旋律拉出来。建议一次取 10-30 秒（一句或一段），
-      整首分析会慢且旋律会被切成太多碎片。</div>
+      <div class="small muted mb">选一段音频（mp3 / m4a / wav / flac 都行）。
+      流程是先用 Spleeter 把人声从伴奏里分出来，再从人声轨提取旋律 ——
+      直接在混音上提旋律对商业录音基本无效（人声被压缩、混响和和声包围），
+      所以必须先分离。建议一次取 10-30 秒（一句或一段）。
+      <br><b>能力边界</b>：人声清晰、主旋律突出的段落效果最好；
+      合唱/和声堆叠、强电子处理过的人声、说唱、纯乐器段落可能提不出来 ——
+      提不出时下面会告诉你扫到的最佳人声段在哪，换个段落再试。</div>
       <input type="file" id="f" accept="audio/*">
       <div class="row wrap mt" style="gap:8px">
         <label class="field grow" style="margin:0"><span>从第几秒开始</span>
@@ -361,9 +364,36 @@ function fileMode(view, cfg) {
           $('#off').value = Math.round(off);
         }
       }
+      // 先分离人声再提旋律。分离只做选中的这一段（十几二十秒），
+      // 不是整曲 —— 整曲分离要几十秒，而我们只需要这一段的旋律。
+      let vocalBuf = null;
+      try {
+        const S = await import('../separate.js');
+        if (!S.available()) {
+          $('#st').textContent = '载入人声分离模型…';
+          await sleep(20);
+          if (!(await S.load())) throw new Error(S.state.error || '模型加载失败');
+        }
+        const sr = buf.sampleRate;
+        const s0 = Math.min(buf.length - 1, Math.floor(off * sr));
+        const s1 = Math.min(buf.length, s0 + Math.floor(len * sr));
+        const L = buf.getChannelData(0).slice(s0, s1);
+        const R = buf.numberOfChannels > 1 ? buf.getChannelData(1).slice(s0, s1) : L;
+        const voc = await S.separateVocals(L, R, (pr) => {
+          $('#st').textContent = `分离人声… ${Math.round(pr * 100)}%`;
+        });
+        // 包成 AudioBuffer 交给下面的分析流程，偏移归零（已经截好段了）
+        const ctx2 = audioCtx();
+        vocalBuf = ctx2.createBuffer(1, voc.length, sr);
+        vocalBuf.copyToChannel(voc, 0);
+      } catch (e) {
+        console.warn('人声分离失败，退回直接分析混音', e);
+        $('#st').textContent = '人声分离不可用，直接分析混音（效果会差很多）…';
+        await sleep(400);
+      }
       $('#st').textContent = `分析 ${fmtTime(off)} 起的 ${len} 秒…`;
       await sleep(30);
-      analyzed = analyze(buf, off, len, a4);
+      analyzed = vocalBuf ? analyze(vocalBuf, 0, len, a4) : analyze(buf, off, len, a4);
       if (!analyzed.track.filter((x) => x.midi !== null).length) {
         const detail = scan
           ? `全曲扫了 ${scan.segs.length} 段，人声比例最高的一段是 ${fmtTime(scan.best ? scan.best.t : 0)}`
