@@ -21,8 +21,10 @@ const N_BINS = 1024;     // 模型只看前 1024 个频点（约到 11kHz，人�
 const T_CHUNK = 512;     // 每块 512 帧
 
 let ort = null;
-let sess = null;
+let sess = null;        // vocals
+let sessAcc = null;     // accompaniment（只有要伴奏时才加载）
 let loading = null;
+let loadingAcc = null;
 let hann = null;
 
 export const state = { ready: false, loading: false, error: null, ms: 0 };
@@ -65,13 +67,37 @@ export function load() {
 }
 
 export function available() { return state.ready; }
+export function accompanimentAvailable() { return !!sessAcc; }
+
+/** 伴奏轨用单独一个模型（同样 26MB）。只有「跟着伴奏唱」才需要，所以按需加载。 */
+export async function loadAccompaniment() {
+  if (loadingAcc) return loadingAcc;
+  loadingAcc = (async () => {
+    try {
+      const o = await loadOrt();
+      sessAcc = await o.InferenceSession.create(`${DIR}/accompaniment.int8.onnx`,
+        { executionProviders: ['wasm'], graphOptimizationLevel: 'all' });
+      return true;
+    } catch (e) {
+      state.error = String((e && e.message) || e);
+      sessAcc = null;
+      return false;
+    }
+  })();
+  return loadingAcc;
+}
 
 export async function unload() {
   const s = sess;
+  const a = sessAcc;
   sess = null;
+  sessAcc = null;
   loading = null;
+  loadingAcc = null;
   state.ready = false;
-  if (s) { try { await s.release(); } catch { /* 已经释放了 */ } }
+  for (const x of [s, a]) {
+    if (x) { try { await x.release(); } catch { /* 已经释放了 */ } }
+  }
 }
 
 /** 原地 radix-2 复数 FFT（正变换 sign=-1，逆变换 sign=+1）。 */
@@ -113,8 +139,9 @@ function fft(re, im, sign) {
  * @param {(p:number)=>void} onProgress 0..1
  * @returns {Promise<Float32Array>} 人声波形（与输入同长、单声道混合）
  */
-export async function separateVocals(left, right, onProgress) {
+export async function separateVocals(left, right, onProgress, opt = {}) {
   if (!state.ready) throw new Error('人声分离模型未加载');
+  const wantAcc = !!opt.withAccompaniment && !!sessAcc;
   const N = left.length;
   const frames = N >= N_FFT ? 1 + Math.floor((N - N_FFT) / HOP) : 0;
   if (!frames) throw new Error('音频太短');
@@ -147,51 +174,69 @@ export async function separateVocals(left, right, onProgress) {
     await new Promise((r) => setTimeout(r, 0));   // 让出主线程，界面不卡
   }
 
-  const out = await sess.run({
-    x: new ort.Tensor('float32', mag, [2, chunks, T_CHUNK, N_BINS]),
-  });
+  // STFT 只算一次，两个模型共用同一份幅度谱
+  const xTensor = new ort.Tensor('float32', mag, [2, chunks, T_CHUNK, N_BINS]);
+  const out = await sess.run({ x: xTensor });
   const y = out[sess.outputNames[0]].data;
+  let yAcc = null;
+  if (wantAcc) {
+    const outA = await sessAcc.run({ x: xTensor });
+    yAcc = outA[sessAcc.outputNames[0]].data;
+  }
   if (onProgress) onProgress(0.75);
 
   // iSTFT：模型给的人声幅度 + 原始相位，overlap-add 回波形。
   // 两个声道直接平均成单声道 —— 后面只用来提音高，不需要立体声。
   const acc = new Float32Array(N);
+  const accBack = wantAcc ? new Float32Array(N) : null;
   const wsum = new Float32Array(N);
+  const tracks = wantAcc ? [[y, acc], [yAcc, accBack]] : [[y, acc]];
   for (let c = 0; c < 2; c++) {
     for (let f = 0; f < frames; f++) {
       const base = (c * padded + f) * N_BINS;
       const pb = f * N_BINS;
-      re.fill(0); im.fill(0);
-      for (let k = 0; k < N_BINS; k++) {
-        const m0 = Math.hypot(phRe[c][pb + k], phIm[c][pb + k]);
-        const scale = m0 > 1e-9 ? y[base + k] / m0 : 0;    // 相位保持，只换幅度
-        re[k] = phRe[c][pb + k] * scale;
-        im[k] = phIm[c][pb + k] * scale;
-        if (k > 0 && k < N_FFT / 2) {                       // 共轭对称补全
-          re[N_FFT - k] = re[k];
-          im[N_FFT - k] = -im[k];
+      for (const [yy, dst] of tracks) {
+        re.fill(0); im.fill(0);
+        for (let k = 0; k < N_BINS; k++) {
+          const m0 = Math.hypot(phRe[c][pb + k], phIm[c][pb + k]);
+          const scale = m0 > 1e-9 ? yy[base + k] / m0 : 0;   // 相位保持，只换幅度
+          re[k] = phRe[c][pb + k] * scale;
+          im[k] = phIm[c][pb + k] * scale;
+          if (k > 0 && k < N_FFT / 2) {                      // 共轭对称补全
+            re[N_FFT - k] = re[k];
+            im[N_FFT - k] = -im[k];
+          }
+        }
+        fft(re, im, +1);
+        const off = f * HOP;
+        for (let i = 0; i < N_FFT; i++) {
+          dst[off + i] += (re[i] / N_FFT) * hann[i] * 0.5;   // 0.5 = 两声道平均
         }
       }
-      fft(re, im, +1);
       const off = f * HOP;
-      for (let i = 0; i < N_FFT; i++) {
-        acc[off + i] += (re[i] / N_FFT) * hann[i] * 0.5;    // 0.5 = 两声道平均
-        if (c === 0) wsum[off + i] += hann[i] * hann[i];
+      if (c === 0) {
+        for (let i = 0; i < N_FFT; i++) wsum[off + i] += hann[i] * hann[i];
       }
     }
     if (onProgress) onProgress(0.75 + 0.24 * ((c + 1) / 2));
     await new Promise((r) => setTimeout(r, 0));
   }
   let peak = 0;
+  let peakB = 0;
   for (let i = 0; i < N; i++) {
-    if (wsum[i] > 1e-6) acc[i] /= wsum[i];
+    const w = wsum[i] > 1e-6 ? wsum[i] : 1;
+    acc[i] /= w;
     const a = Math.abs(acc[i]);
     if (a > peak) peak = a;
+    if (accBack) {
+      accBack[i] /= w;
+      const ab = Math.abs(accBack[i]);
+      if (ab > peakB) peakB = ab;
+    }
   }
   // 重建后可能略微过冲（实测峰值 1.08），归一化避免后续处理里被削波
-  if (peak > 1) {
-    for (let i = 0; i < N; i++) acc[i] /= peak;
-  }
+  if (peak > 1) for (let i = 0; i < N; i++) acc[i] /= peak;
+  if (accBack && peakB > 1) for (let i = 0; i < N; i++) accBack[i] /= peakB;
   if (onProgress) onProgress(1);
-  return acc;
+  return wantAcc ? { vocals: acc, accompaniment: accBack } : acc;
 }

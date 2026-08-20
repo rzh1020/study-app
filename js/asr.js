@@ -328,9 +328,15 @@ export function guessLang(text) {
 }
 
 // ---------- 录音 ----------
-// 用 MediaRecorder 而不是 Mic 那套 AnalyserNode + requestAnimationFrame：
-// 后者是为实时音高显示做的，每帧只取当前分析窗口，帧之间会重叠或漏采，
-// 拼不出完整波形。识别要的是连续、无缺口的音频。
+// 直接拿原始 PCM，不用 MediaRecorder。
+//
+// MediaRecorder 录的是压缩格式（webm/opus），必须等 stop() 之后 decodeAudioData
+// 才能拿到波形 —— 这就是「说完还要等」的一部分原因，也让「边说边识别」根本无从下手。
+// 改成用 ScriptProcessor 逐块拿 Float32：连续无缺口、随时能取已录部分去识别、
+// 顺手还能算能量做静音检测。
+//
+// 也没用 Mic 那套 AnalyserNode + requestAnimationFrame：那是为实时音高显示做的，
+// 每帧只取当前分析窗口，帧之间会重叠或漏采，拼不出完整波形。
 
 /** 把任意采样率的单声道 PCM 重采样到 16kHz。 */
 export function resample16k(pcm, srcRate) {
@@ -346,60 +352,112 @@ export function resample16k(pcm, srcRate) {
   return out;
 }
 
-/** 开始录音。调用返回对象的 stop() 拿到 16kHz 单声道 PCM。 */
-export async function startRecording() {
+/**
+ * 开始录音。
+ *
+ * @param {object} opt
+ *   onLevel(v)      每块回调一次当前电平 0..1，用来画电平条
+ *   onPartial(text) 边说边识别的中间结果（每 partialMs 至多一次）
+ *   onAutoStop()    检测到说完（持续静音）时回调，界面可以据此自动收尾
+ *   silenceMs       持续静音多久算说完，默认 900ms；传 0 关闭自动断句
+ *   partialMs       两次中间识别的最小间隔，默认 1100ms；传 0 关闭
+ */
+export async function startRecording(opt = {}) {
+  const silenceMs = opt.silenceMs ?? 900;
+  const partialMs = opt.partialMs ?? 1100;
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
   });
-  const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', '']
-    .find((t) => !t || (window.MediaRecorder && MediaRecorder.isTypeSupported(t)));
-  const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const src = ctx.createMediaStreamSource(stream);
+  const proc = ctx.createScriptProcessor(4096, 1, 1);
+  // ScriptProcessor 只有连到 destination 才会被调度，但那样会把麦克风原声放出来
+  // （立刻啸叫）。所以中间串一个增益为 0 的节点。
+  const mute = ctx.createGain();
+  mute.gain.value = 0;
+
   const chunks = [];
-  rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
-  rec.start();
+  let total = 0;
+  let level = 0;
+  let noiseFloor = 0.01;
+  let framesSeen = 0;
+  let lastVoiceAt = performance.now();
+  let lastPartialAt = 0;
+  let partialBusy = false;
+  let stopped = false;
+  let autoStopFired = false;
+
+  proc.onaudioprocess = (e) => {
+    if (stopped) return;
+    const inBuf = e.inputBuffer.getChannelData(0);
+    const copy = new Float32Array(inBuf.length);
+    copy.set(inBuf);
+    chunks.push(copy);
+    total += copy.length;
+
+    let peak = 0;
+    for (let i = 0; i < copy.length; i++) {
+      const v = Math.abs(copy[i]);
+      if (v > peak) peak = v;
+    }
+    level = peak;
+    if (opt.onLevel) opt.onLevel(peak);
+
+    // 头几块用来估噪声底，之后按它的倍数判断有没有人在说
+    framesSeen++;
+    if (framesSeen <= 6) {
+      noiseFloor = Math.max(noiseFloor * 0.7 + peak * 0.3, 0.004);
+    } else if (peak > Math.max(noiseFloor * 3, 0.02)) {
+      lastVoiceAt = performance.now();
+    }
+
+    const now = performance.now();
+    if (silenceMs && !autoStopFired && framesSeen > 10
+        && total > ctx.sampleRate * 0.6            // 至少录到 0.6 秒才允许自动收
+        && now - lastVoiceAt > silenceMs) {
+      autoStopFired = true;
+      if (opt.onAutoStop) opt.onAutoStop();
+    }
+
+    // 边说边识别：拿目前录到的全部音频跑一次。识别比说话快（RTF 约 0.33），
+    // 但仍要节流 + 跳过上一次没跑完的，否则会积压。
+    if (partialMs && opt.onPartial && state.ready && !partialBusy
+        && now - lastPartialAt > partialMs && total > ctx.sampleRate * 0.7) {
+      partialBusy = true;
+      lastPartialAt = now;
+      const snapshot = merge(chunks, total);
+      recognize(resample16k(snapshot, ctx.sampleRate))
+        .then((r) => { if (!stopped && r.text) opt.onPartial(r.text); })
+        .catch(() => {})
+        .finally(() => { partialBusy = false; });
+    }
+  };
+
+  src.connect(proc);
+  proc.connect(mute);
+  mute.connect(ctx.destination);
   const t0 = performance.now();
-  // 顺便挂一个分析节点读实时电平：录音时界面要能显示「确实在收音」，
-  // 否则用户唯一的反馈就是等几秒后出来一句错的识别结果。
-  let mon = null;
-  let an = null;
-  let tmp = null;
-  try {
-    mon = new (window.AudioContext || window.webkitAudioContext)();
-    an = mon.createAnalyser();
-    an.fftSize = 1024;
-    mon.createMediaStreamSource(stream).connect(an);
-    tmp = new Float32Array(an.fftSize);
-  } catch { /* 拿不到电平不影响录音 */ }
+
+  function merge(list, n) {
+    const out = new Float32Array(n);
+    let off = 0;
+    for (const c of list) { out.set(c, off); off += c.length; }
+    return out;
+  }
+
   return {
-    get seconds() { return (performance.now() - t0) / 1000; },
-    get level() {
-      if (!an) return 0;
-      an.getFloatTimeDomainData(tmp);
-      let peak = 0;
-      for (let i = 0; i < tmp.length; i++) {
-        const v = Math.abs(tmp[i]);
-        if (v > peak) peak = v;
-      }
-      return peak;
-    },
+    get seconds() { return total / ctx.sampleRate; },
+    get level() { return level; },
+    get elapsed() { return (performance.now() - t0) / 1000; },
     async stop() {
-      await new Promise((res) => { rec.onstop = res; rec.stop(); });
+      stopped = true;
+      try { proc.disconnect(); src.disconnect(); mute.disconnect(); } catch { /* 已断开 */ }
+      proc.onaudioprocess = null;
       stream.getTracks().forEach((t) => t.stop());
-      if (mon) { try { await mon.close(); } catch { /* 已经关了 */ } }
-      if (!chunks.length) return { pcm: new Float32Array(0), seconds: 0 };
-      const blob = new Blob(chunks, mime ? { type: mime } : undefined);
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const buf = await ctx.decodeAudioData(await blob.arrayBuffer());
-      const ch0 = buf.getChannelData(0);
-      const mono = new Float32Array(ch0.length);
-      if (buf.numberOfChannels > 1) {
-        const ch1 = buf.getChannelData(1);
-        for (let i = 0; i < ch0.length; i++) mono[i] = (ch0[i] + ch1[i]) / 2;
-      } else {
-        mono.set(ch0);
-      }
-      ctx.close();
-      return { pcm: resample16k(mono, buf.sampleRate), seconds: buf.duration };
+      const pcm = merge(chunks, total);
+      const rate = ctx.sampleRate;
+      try { await ctx.close(); } catch { /* 已关闭 */ }
+      return { pcm: resample16k(pcm, rate), seconds: total / rate };
     },
   };
 }

@@ -123,9 +123,18 @@ export async function render(view) {
         const okk = await A.load();
         if (!okk) { $('#micHint').innerHTML = `<span style="color:var(--bad)">${esc(A.state.error || '识别模型加载失败')}</span>`; return; }
       }
-      recording = await A.startRecording();
+      recording = await A.startRecording({
+        // 边说边识别：识别比说话快，说的过程中就能看到字进输入框
+        onPartial: (t) => {
+          if (!recording) return;
+          $('#trIn').value = t;
+          $('#micHint').textContent = '听到：' + t;
+        },
+        // 说完自动收尾，不用再点一次
+        onAutoStop: () => { if (recording) $('#btnMic').click(); },
+      });
       btn.classList.add('on');
-      $('#micHint').textContent = '在听… 说完再点一下麦克风';
+      $('#micHint').textContent = '在听… 说完会自动结束';
     } catch (e) {
       recording = null;
       btn.classList.remove('on');

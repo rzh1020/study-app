@@ -52,6 +52,8 @@ async function singMode(view, cfg) {
   let startT = 0;
   const sung = [];              // {t, midi}
   let custom = null;            // 从本地文件分析出的旋律
+  let backingBuf = null;        // 该素材的伴奏（AudioBuffer），有则带唱时播放
+  let backingSrc = null;
 
   const savedCustom = await db.get('meta', 'singCustom').catch(() => null);
   if (savedCustom && savedCustom.v) custom = savedCustom.v;
@@ -90,12 +92,39 @@ async function singMode(view, cfg) {
 
   function songList() {
     const opts = BUILTIN.map((s) => `<option value="${s.id}">${esc(s.name)}</option>`);
-    if (custom) opts.push(`<option value="__custom">我的歌：${esc(custom.name)}</option>`);
+    if (custom) {
+      opts.push(`<option value="__custom">我的歌：${esc(custom.name)}${custom.hasBacking ? '（含伴奏）' : ''}</option>`);
+    }
     $('#songSel').innerHTML = opts.join('');
     $('#songSel').value = song.id;
   }
+  function stopBacking() {
+    if (backingSrc) {
+      try { backingSrc.stop(); } catch { /* 已经停了 */ }
+      backingSrc = null;
+    }
+  }
+
+  /** 素材里存的是 16bit PCM，还原成 AudioBuffer 才能播。 */
+  function makeBacking(c) {
+    backingBuf = null;
+    if (!c || !c.backing) return;
+    try {
+      const pcm16 = new Int16Array(c.backing);
+      const ctx = audioCtx();
+      const buf = ctx.createBuffer(1, pcm16.length, c.backingRate || 44100);
+      const ch = buf.getChannelData(0);
+      for (let i = 0; i < pcm16.length; i++) ch[i] = pcm16[i] / 32768;
+      backingBuf = buf;
+    } catch (e) {
+      console.warn('伴奏还原失败', e);
+    }
+  }
+
   function pickSong(v) {
     song = v === '__custom' ? custom : (BUILTIN.find((s) => s.id === v) || BUILTIN[0]);
+    stopBacking();
+    makeBacking(v === '__custom' ? custom : null);
     $('#songTip').textContent = song.tip || `${song.notes.length} 个音`;
     sung.length = 0;
     draw();
@@ -197,14 +226,29 @@ async function singMode(view, cfg) {
     const tl = timeline();
     const dur = tl.slice(-1)[0].t1;
     startT = performance.now();
-    // 边放参考音边采集。参考音音量压低，避免被麦克风拾进去干扰检测。
-    (async () => {
-      for (const e of tl) {
-        if (!running) break;
-        if (e.midi !== null) playNote(e.midi, (e.t1 - e.t0) * 0.9, { a4, gain: 0.08 });
-        await sleep((e.t1 - e.t0) * 1000);
-      }
-    })();
+    // 有伴奏就放伴奏（从原曲分离出来的），没有才退回合成参考音。
+    // 唱歌本来就该跟着伴奏走，屏幕上的音高线负责提示该唱哪个音；
+    // 合成钢琴音只是没有伴奏时的替代。
+    if (backingBuf) {
+      stopBacking();
+      const c = audioCtx();
+      backingSrc = c.createBufferSource();
+      backingSrc.buffer = backingBuf;
+      const g = c.createGain();
+      g.gain.value = 0.85;
+      backingSrc.connect(g);
+      g.connect(c.destination);
+      backingSrc.start();
+    } else {
+      // 参考音音量压低，避免被麦克风拾进去干扰检测
+      (async () => {
+        for (const e of tl) {
+          if (!running) break;
+          if (e.midi !== null) playNote(e.midi, (e.t1 - e.t0) * 0.9, { a4, gain: 0.08 });
+          await sleep((e.t1 - e.t0) * 1000);
+        }
+      })();
+    }
 
     const loop = () => {
       if (!running) return;
@@ -220,6 +264,7 @@ async function singMode(view, cfg) {
   }
 
   function stopSing() {
+    stopBacking();
     running = false;
     cancelAnimationFrame(raf);
     keepAwake(false);
@@ -287,7 +332,7 @@ async function singMode(view, cfg) {
   const offPause = onNativePause(() => { if (running) stopSing(); });
   return {
     resize() { draw(); },
-    destroy() { running = false; cancelAnimationFrame(raf); keepAwake(false); offPause(); mic.stop(); },
+    destroy() { running = false; stopBacking(); cancelAnimationFrame(raf); keepAwake(false); offPause(); mic.stop(); },
   };
 }
 
@@ -334,6 +379,8 @@ function fileMode(view, cfg) {
   `;
 
   let file = null;
+  let backing = null;        // 分离出的伴奏（Float32），存进素材给带唱播放
+  let backingRate = 44100;
   let userSetOff = false;
   $('#off').oninput = () => { userSetOff = $('#off').value !== '' && +$('#off').value > 0; };
   $('#f').onchange = (e) => {
@@ -379,9 +426,15 @@ function fileMode(view, cfg) {
         const s1 = Math.min(buf.length, s0 + Math.floor(len * sr));
         const L = buf.getChannelData(0).slice(s0, s1);
         const R = buf.numberOfChannels > 1 ? buf.getChannelData(1).slice(s0, s1) : L;
-        const voc = await S.separateVocals(L, R, (pr) => {
-          $('#st').textContent = `分离人声… ${Math.round(pr * 100)}%`;
-        });
+        // 同时要伴奏轨：唱歌得跟着伴奏唱，人声轨只用来当音高提示。
+        // 两轨共用同一份 STFT，多的开销只是第二个模型的一次前向。
+        await S.loadAccompaniment();
+        const r2 = await S.separateVocals(L, R, (pr) => {
+          $('#st').textContent = `分离人声与伴奏… ${Math.round(pr * 100)}%`;
+        }, { withAccompaniment: true });
+        const voc = r2.vocals || r2;
+        backing = r2.accompaniment || null;
+        backingRate = sr;
         // 包成 AudioBuffer 交给下面的分析流程，偏移归零（已经截好段了）
         const ctx2 = audioCtx();
         vocalBuf = ctx2.createBuffer(1, voc.length, sr);
@@ -573,8 +626,19 @@ function fileMode(view, cfg) {
       bpm: 60, notes: notes.slice(0, 64),
       tip: `从「${file ? file.name : '本地音频'}」第 ${analyzed.offSec}s 起提取，共 ${notes.length} 个音`,
     };
+    // 伴奏一起存：带唱时放伴奏、屏幕上给音高提示，比听合成钢琴音贴近真唱。
+    // 存成 16bit PCM（Float32 直接存体积翻倍，而 16bit 对伴奏回放完全够）
+    if (backing) {
+      const pcm16 = new Int16Array(backing.length);
+      for (let i = 0; i < backing.length; i++) {
+        pcm16[i] = Math.max(-32768, Math.min(32767, Math.round(backing[i] * 32767)));
+      }
+      payload.backing = pcm16.buffer;
+      payload.backingRate = backingRate;
+      payload.hasBacking = true;
+    }
     await db.put('meta', { k: 'singCustom', v: payload });
-    toast('已存为带唱素材');
+    toast(backing ? '已存为带唱素材（含伴奏）' : '已存为带唱素材');
     location.hash = '#/sing';
   };
 

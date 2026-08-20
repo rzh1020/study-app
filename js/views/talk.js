@@ -220,6 +220,9 @@ export async function render(view) {
       const r = rec;
       rec = null;
       btn.classList.remove('on');
+      const bar0 = $('#tkLevel');
+      bar0.classList.remove('on');
+      bar0.firstElementChild.style.width = '0%';
       busy = true;
       const spoken = from;
       try {
@@ -249,19 +252,21 @@ export async function render(view) {
         const ok = await A.load();
         if (!ok) { toast('识别模型加载失败：' + A.state.error, 5000); return; }
       }
-      rec = await A.startRecording();
-      btn.classList.add('on');
-      drawHint('在听… 说完再点一下按钮');
-      // 实时电平：没有它，用户不知道麦克风到底有没有在收音
       const bar = $('#tkLevel');
       bar.classList.add('on');
-      const tick = () => {
-        if (!rec) { bar.classList.remove('on'); bar.firstElementChild.style.width = '0%'; return; }
-        const v = Math.min(1, rec.level * 3.5);
-        bar.firstElementChild.style.width = `${Math.round(v * 100)}%`;
-        requestAnimationFrame(tick);
-      };
-      requestAnimationFrame(tick);
+      rec = await A.startRecording({
+        // 电平条：没有它，用户不知道麦克风到底有没有在收音
+        onLevel: (v) => {
+          bar.firstElementChild.style.width = `${Math.round(Math.min(1, v * 3.5) * 100)}%`;
+        },
+        // 边说边识别：识别比说话快（RTF 约 0.33），所以说的过程中就能看到字，
+        // 不用等说完再从零开始认
+        onPartial: (t) => { if (rec) drawHint('听到：' + t); },
+        // 说完自动收：省掉「再点一下按钮」这一步，也省掉人犹豫的时间
+        onAutoStop: () => { if (rec) startListen(); },
+      });
+      btn.classList.add('on');
+      drawHint('在听… 说完会自动结束，也可以点按钮结束');
     } catch (e) {
       toast('打不开麦克风：' + ((e && e.message) || e), 4000);
       rec = null;
