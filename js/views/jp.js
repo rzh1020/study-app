@@ -59,13 +59,13 @@ export async function render(view) {
       已学完 ${lessonDone.size} / ${course.lessons.length} 课 · <a href="#/course">看目录</a>
     </div>` : ''}
     ${totalDue ? `<a class="btn btn-pri btn-block mb" href="#/review/all">再练今日全部（${totalDue}）</a>`
-      : '<div class="card center small muted">今天的日语卡都清空了。想多学可以进单个牌组预习。</div>'}
+      : '<div class="card center small muted">今天的卡都清空了。</div>'}
     <div class="sec-title">日语</div>
     ${decks.filter((d) => DECKS[d].group === '日语').map(row).join('')}
     <div class="sec-title">声乐</div>
     ${decks.filter((d) => DECKS[d].group === '声乐').map(row).join('')}
     <div class="card tight">
-      <div class="tiny dim">牌组的每日新卡数、启用状态在「数据」页调整。想导入自己的词表（比如看动漫记下的台词）也在那里。</div>
+      <div class="tiny dim">每日新卡数、导入词表在「数据」页。</div>
     </div>
   `;
 }

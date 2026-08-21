@@ -499,8 +499,9 @@ async function main() {
   // 能力表：如实列出本机哪条路能用，避免点了才发现不行
   await sleep(2600);
   const capTxt = await page.$eval('#capBox', (e) => e.innerText);
-  ok('列出本机语音能力', /打字翻译/.test(capTxt) && /朗读日语/.test(capTxt), capTxt.slice(0, 70).replace(/\n/g, '|'));
-  ok('能力表不停留在「检测中」', !/检测中/.test(capTxt.split('朗读中文')[1] || ''), capTxt.replace(/\n/g, '|'));
+  // 原来这里是一大块能力自述（"翻译、朗读、识别都是内置模型、不联网…"），
+  // 属于给自己辩解，已删。只留一行状态，断言跟着收敛。
+  ok('标明离线可用', /离线可用/.test(capTxt), capTxt.slice(0, 60).replace(/\n/g, '|'));
 
   // 翻译主路径现在是离线神经翻译（js/nmt.js + 打包在 APK 里的 int8 模型），
   // 短语库退成兜底。等文本出现而不是死等固定时间：首次要加载 280MB 模型。

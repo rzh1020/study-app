@@ -47,8 +47,8 @@ export async function render(view) {
       <h3>记忆保持率</h3>
       <canvas class="chart" id="cRet"></canvas>
       <div class="tiny dim mt">绿虚线是目标保持率 ${Math.round(cfg.requestRetention * 100)}%。
-      只统计已毕业卡片（初学阶段点「忘了」不计入，否则这条线没有参考价值）。
-      长期明显低于目标 → 间隔排得太长；明显高于目标 → 复习过于频繁，可以调低目标省时间。
+      只统计已毕业卡片。
+      低于目标说明间隔排太长，高于目标说明复习偏密。
       已毕业复习 ${matureRev} 次 / 总复习 ${totalRev} 次。</div>
     </div>
 
@@ -57,12 +57,12 @@ export async function render(view) {
     <div class="card">
       <h3>音准（越低越好，单位音分）</h3>
       <canvas class="chart" id="cCents"></canvas>
-      <div class="tiny dim mt">橙=五度音阶，蓝=固定曲目。绿虚线 20 音分 = 普通听众听不出跑调的门槛。</div>
+      <div class="tiny dim mt">橙=五度音阶，蓝=固定曲目，绿线 ±20 音分。</div>
     </div>
     <div class="card">
       <h3>最长发声（气息，秒）</h3>
       <canvas class="chart" id="cSus"></canvas>
-      <div class="tiny dim mt">男性健康参考 20-30 秒。同音高同音量下上升说明支撑变好。</div>
+      <div class="tiny dim mt">男性参考 20-30 秒。</div>
     </div>
     <div class="card">
       <h3>音域（MIDI 音号）</h3>
@@ -90,8 +90,7 @@ export async function render(view) {
     <div class="sec-title">设置</div>
     <div class="card">
       <h3>每日新卡数</h3>
-      <div class="tiny dim mb">复习量大约是新卡数的 8-12 倍。先从小开始，两周后看复习负载再调，
-      一上来就 30 张会在第三周被复习债压垮。</div>
+      <div class="tiny dim mb">复习量约为新卡的 8-12 倍，建议从小开始。</div>
       ${Object.keys(DECKS).sort((a, b) => DECKS[a].order - DECKS[b].order).map((d) => `
         <div class="row spread" style="padding:7px 0;border-bottom:1px solid var(--line)">
           <label class="row grow" style="gap:8px;margin:0">
@@ -140,7 +139,7 @@ export async function render(view) {
         <button class="btn btn-sm btn-ghost" id="btnReseed">重新种卡</button>
         <button class="btn btn-sm btn-bad" id="btnReset">清空全部数据</button>
       </div>
-      <div class="tiny dim mt">「重新种卡」用于 data/*.json 更新后补进新内容，不会动已有卡的记忆状态。</div>
+      <div class="tiny dim mt">「重新种卡」补进新内容，不影响已有卡的进度。</div>
     </div>
   `;
 

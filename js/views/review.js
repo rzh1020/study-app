@@ -126,7 +126,7 @@ export async function render(view, { args }) {
       <div class="card center">
         <div style="font-size:38px">✓</div>
         <h3 style="margin-top:8px">这个牌组今天清空了</h3>
-        <div class="small muted mb">FSRS 已经把下一次复习排到最省时间的时间点。提前刷会降低记忆增益。</div>
+        <div class="small muted mb">FSRS 下一次复习已排好，提前刷效果会变差。</div>
         <a class="btn btn-block" href="#/jp">回牌组列表</a>
       </div>`;
     return {};

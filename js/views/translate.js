@@ -78,9 +78,7 @@ export async function render(view) {
   function drawMicHint() {
     const hint = $('#micHint');
     if (!hint) return;
-    hint.textContent = recording
-      ? '在听… 说完再点一下麦克风'
-      : '点麦克风说话，中文日文都行（离线识别，模型自己判语言）';
+    hint.textContent = recording ? '在听…' : '点麦克风说话，中文日语都行';
   }
 
   // 语音输入走自带的离线识别（js/asr.js，SenseVoice）。
@@ -172,13 +170,13 @@ export async function render(view) {
         }
       } catch (e) {
         console.warn('神经语音失败', e);
-        toast('语音合成失败：' + ((e && e.message) || e), 5000);
+        toast('语音合成失败', 4000);
         return;
       }
       // 到这里说明神经语音模型没加载成功。剩下的兜底只有假名音节拼接，
       // 那是一个假名一个假名拼出来的，机械难听 —— 不静默启用它，
       // 否则听起来像功能退化，而且掩盖了「模型没加载」这个真问题。
-      toast('语音模型没加载成功，这句读不出来。可以退出重进这一页再试', 5000);
+      toast('语音模型没加载成功，读不出来', 4000);
       return;
     }
     if (speak(text, lang)) return;
@@ -193,19 +191,7 @@ export async function render(view) {
     const y = (v) => v === null ? '<span class="dim">检测中…</span>'
       : v ? '<span style="color:var(--ok)">可用</span>' : '<span style="color:var(--bad)">不可用</span>';
     $('#capBox').innerHTML = `
-      <div class="tiny dim">本机能力（全部离线，App 不联网）</div>
-      <div class="tr-cap">
-        <span>打字翻译</span><span style="color:var(--ok)">可用</span>
-        <span>朗读日语</span><span style="color:var(--ok)">内置语音</span>
-        <span>朗读中文</span>${y(tts['zh-CN'])}
-        <span>语音输入</span><span style="color:var(--ok)">内置识别</span>
-      </div>
-      <div class="tiny dim" style="margin-top:7px">
-        翻译、朗读、语音识别都是 App 内置模型，不用系统引擎也不联网。
-        日语朗读优先用预渲染整句（${ja.phrases} 条，音质最好），其余用神经语音合成；
-        语音识别用的是 SenseVoice，中文日文自动判别 ——
-        系统自带的语音服务在这台设备上录不了音，所以没有用它。
-      </div>`;
+      <div class="tiny dim">离线可用 · 打字、朗读、语音输入</div>`;
   }
 
   // ---------- 翻译 ----------

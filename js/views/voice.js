@@ -121,13 +121,13 @@ async function tuner(view, cfg) {
   view.innerHTML = `
     ${insecureBanner()}
     <div class="card tight">
-      <div class="tiny dim">自己听自己会被骨传导误导（低频被加强），必须靠外部显示校正。
-      绿区 ±20 音分是普通听众听不出跑调的范围。</div>
+      <div class="tiny dim">自己听自己会被骨传导误导，看屏幕校正。
+      绿区 ±20 音分。</div>
     </div>
     ${tunerHTML('tn')}
     <div class="card">
       <h3>跟唱校准</h3>
-      <div class="small muted mb">先听参考音，再用「啊」或哼鸣唱同一个音，保持 3 秒。系统会算你这 3 秒的中位偏差。</div>
+      <div class="small muted mb">先听参考音，再用「啊」唱同一个音，保持 3 秒。</div>
       <div class="row wrap mb">
         <select id="refNote" style="flex:1">
           ${['C3','D3','E3','F3','G3','A3','B3','C4','D4','E4','F4','G4','A4','C5']

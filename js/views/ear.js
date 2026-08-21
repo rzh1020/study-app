@@ -161,8 +161,7 @@ async function demoScreen(view, level, cfg) {
   view.innerHTML = `
     <div class="card">
       <h3>先听一遍：${esc(level.how || level.desc)}</h3>
-      <div class="small muted">下面每个按钮对应一种情况。挨个点着听，把声音和名字对上，
-      再开始答题。答题时还能随时回来重听。</div>
+      <div class="small muted">挨个点着听，把声音和名字对上，再开始答题。</div>
     </div>
     <div class="card">
       <div class="ear-demos" id="demos">
@@ -176,7 +175,7 @@ async function demoScreen(view, level, cfg) {
       <div class="tiny dim mt" id="demoTip">戴耳机效果更好。</div>
     </div>
     <button class="btn btn-pri btn-block" id="btnStart">听懂了，开始答题</button>
-    <div class="tiny dim center mt">第一次不用求全对，答错会自动重播正确的声音。</div>
+    <div class="tiny dim center mt">答错会自动重播正确答案。</div>
   `;
 
   let playing = false;
@@ -229,8 +228,7 @@ function quiz(view, level, cfg) {
       </label>
     </div>
     <div class="card tight" id="learnTip" style="display:none;border-color:rgba(242,178,62,.5);background:rgba(242,178,62,.07)">
-      <div class="tiny" style="color:var(--warn)">熟悉模式：答案已经显示出来了。反复点播放，把声音和名称对上。
-      听出感觉了就取消勾选开始测试 —— 熟悉模式的作答不计入正确率。</div>
+      <div class="tiny" style="color:var(--warn)">熟悉模式：直接显示答案，作答不计入正确率。</div>
     </div>
     <div class="card center" id="qbox">
       <div class="small muted" id="qtext">准备…</div>

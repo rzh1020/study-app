@@ -89,8 +89,7 @@ function listView(view, course, doneSet) {
     }).join('')}
 
     <div class="card tight">
-      <div class="tiny dim">语法点顺序照《みんなの日本語初級Ⅰ》第 1-25 课的句型大纲，
-      不是随便排的。每课先讲再练，例句都拆开讲成分。</div>
+      <div class="tiny dim">顺序参照《みんなの日本語初級Ⅰ》第 1-25 课。</div>
     </div>
   `;
 }

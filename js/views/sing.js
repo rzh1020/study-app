@@ -22,17 +22,17 @@ import { keepAwake, onNativePause } from '../native.js';
 const BUILTIN = [
   { id: 'scale5', name: '五度音阶 上下行', bpm: 84,
     notes: [[60, 1], [62, 1], [64, 1], [65, 1], [67, 1], [65, 1], [64, 1], [62, 1], [60, 2]],
-    tip: '一口气走完九个音。这是最基础的音准+气息练习。' },
+    tip: '一口气走完九个音。' },
   { id: 'triad', name: '大三和弦 do mi sol', bpm: 76,
     notes: [[60, 1], [64, 1], [67, 1], [72, 1], [67, 1], [64, 1], [60, 2]],
-    tip: '和弦骨架音。唱准这三个音，调性感就立起来了。' },
+    tip: '和弦骨架音。' },
   { id: 'octave', name: '八度滑音', bpm: 60,
     notes: [[60, 2], [72, 2], [60, 2]],
-    tip: '专门练换声点过渡。破音处放慢、减小音量再过。' },
+    tip: '练换声点。破音处放慢、减小音量。' },
   { id: 'joy', name: '欢乐颂 前两句', bpm: 92,
     notes: [[64, 1], [64, 1], [65, 1], [67, 1], [67, 1], [65, 1], [64, 1], [62, 1],
             [60, 1], [60, 1], [62, 1], [64, 1], [64, 1.5], [62, 0.5], [62, 2]],
-    tip: '大家都会的旋律，容易判断自己唱得对不对。' },
+    tip: '熟悉的旋律，好判断准不准。' },
 ];
 
 export async function render(view, { args }) {
@@ -85,7 +85,7 @@ async function singMode(view, cfg) {
     <div class="card" id="scoreBox" style="display:none"></div>
 
     <div class="card tight">
-      <div class="tiny dim">看着灰块唱。线在块中间就是准的，偏上是唱高了、偏下是唱低了。
+      <div class="tiny dim">线在块中间就是准的，偏上=高了，偏下=低了。
       唱不上去就往下移调 —— 音域不够时硬顶只会练坏。</div>
     </div>
   `;
@@ -346,13 +346,9 @@ function fileMode(view, cfg) {
   view.innerHTML = `
     <div class="card">
       <h3>从手机里的音频提取旋律</h3>
-      <div class="small muted mb">选一段音频（mp3 / m4a / wav / flac 都行）。
-      流程是先用 Spleeter 把人声从伴奏里分出来，再从人声轨提取旋律 ——
-      直接在混音上提旋律对商业录音基本无效（人声被压缩、混响和和声包围），
-      所以必须先分离。建议一次取 10-30 秒（一句或一段）。
-      <br><b>能力边界</b>：人声清晰、主旋律突出的段落效果最好；
-      合唱/和声堆叠、强电子处理过的人声、说唱、纯乐器段落可能提不出来 ——
-      提不出时下面会告诉你扫到的最佳人声段在哪，换个段落再试。</div>
+      <div class="small muted mb">选一首歌，自动分离人声与伴奏：伴奏用来跟唱，
+      人声用来生成音高提示线。一次取 10-30 秒。
+      <br>人声清晰的段落效果最好；合唱、强电子处理、说唱可能提不出来。</div>
       <input type="file" id="f" accept="audio/*">
       <div class="row wrap mt" style="gap:8px">
         <label class="field grow" style="margin:0"><span>从第几秒开始</span>

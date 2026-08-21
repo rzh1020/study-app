@@ -89,7 +89,7 @@ export async function render(view) {
     </div>` : `
     <div class="card">
       <h3>还没开始</h3>
-      <div class="small muted mb">设定起始日后，这里会只展开当前周该做的事，其余周折叠起来。</div>
+      <div class="small muted mb">设定起始日后只展开当前周。</div>
       <button class="btn btn-pri btn-block" id="btnStartPlan">把今天设为第 1 周第 1 天</button>
     </div>`}
 
